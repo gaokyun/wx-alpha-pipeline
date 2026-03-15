@@ -1,0 +1,9 @@
+threshold_id,variable_id,level_mb,threshold_value,unit,logic_type,description
+T850_FREEZE,t,850,0,C,MAX,Freezing line at altitude (Physical Support)
+Z540_THICK,gh,500,540,dam,MAX,Traditional rain/snow thickness boundary
+Z570_RIDGE,gh,500,570,dam,MIN,Warm ridge inland expansion (Squeeze indicator)
+U250_STREAK,u,250,50,m/s,MIN,Jet Streak intensity verification
+V250_MERID,v,250,20,m/s,MIN,Meridional flow intensity (Buckle check)
+T90_HEAT,2t,surface,32,C,MIN,90F+ Threshold for Texas Power Burn
+D70_DEW,2d,surface,21,C,MIN,70F+ Dewpoint (Turbine Efficiency loss)
+SEA_FREEZE,t,850,2,C,MAX,Seattle snow boundary (Maritime adjustment)

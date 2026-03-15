@@ -1,0 +1,31 @@
+# profiles.yml located at /usr/app/physical_meteor/profiles.yml
+
+physical_meteor:
+  target: prod
+  outputs:
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      # Defaulting to ACCOUNTADMIN based on your previous SQL initialization, 
+      # but you can change this if you created a specific dbt role.
+      role: ACCOUNTADMIN
+      database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+      schema: "{{ env_var('SNOWFLAKE_SCHEMA') }}"
+      threads: 4
+      client_session_keep_alive: False
+
+  # profiles.yml for Postgres
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: postgres
+      user: airflow
+      password: "{{ env_var('POSTGRES_PASS') }}"
+      port: 5432
+      dbname: PHYSICAL_METEOR_DB
+      schema: RAW
+      threads: 4
