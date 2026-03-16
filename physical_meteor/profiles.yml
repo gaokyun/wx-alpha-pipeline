@@ -1,7 +1,7 @@
 # profiles.yml located at /usr/app/physical_meteor/profiles.yml
 
 physical_meteor:
-  target: prod
+  target: dev
   outputs:
     prod:
       type: snowflake
@@ -17,9 +17,7 @@ physical_meteor:
       threads: 4
       client_session_keep_alive: False
 
-  # profiles.yml for Postgres
-  target: dev
-  outputs:
+    # profiles.yml for Postgres
     dev:
       type: postgres
       host: postgres

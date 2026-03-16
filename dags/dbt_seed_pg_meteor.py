@@ -31,7 +31,7 @@ def execute_dbt_seed_in_pg_container():
         # Docker Compose usually names the container 'project-dbt-postgres-1' 
         # unless 'container_name' is explicitly set.
         # docker ps --filter "ancestor=dbt-postgres" --format "{{.Names}}"
-        container = client.containers.get('airflow-dbt-postgres-1') 
+        container = client.containers.get('wx-alpha-pipeline-dbt-postgres-1') 
         
         exit_code, output = container.exec_run(
             cmd='bash -c "dbt seed --profiles-dir . --target dev"',
