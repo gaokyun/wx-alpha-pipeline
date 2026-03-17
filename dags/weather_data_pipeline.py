@@ -3,7 +3,17 @@ from datetime import datetime, timedelta
 from airflow.sdk import dag, task
 
 # Import functions from our etl package
-from etl.meteorology import download_gfs_robust, download_ecmwf_unified
+# from etl.meteorology import download_gfs_robust, download_ecmwf_unified
+
+@task(pool='ecmwf_api_pool')
+def download_gfs_data(date_obj, cycle, step):
+    from etl.meteorology import download_gfs_robust
+    return download_gfs_robust(date_obj, cycle, step)
+
+@task(pool='ecmwf_api_pool')
+def download_ecmwf_data(date_obj, cycle, step):
+    from etl.meteorology import download_ecmwf_unified
+    return download_ecmwf_unified(date_obj, cycle, step)
 
 # Macro Configuration Anchors
 default_args = {

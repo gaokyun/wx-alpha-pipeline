@@ -365,6 +365,15 @@ services:
         echo "Files in shared volumes:"
         echo
         ls -la /opt/airflow/{logs,dags,plugins,config}
+        # ---------------------------------------------------------
+        # NEW: Enterprise Infrastructure-as-Code Injection
+        # ---------------------------------------------------------
+        echo "🔧 Forcing DB migration to ensure tables exist..."
+        airflow db migrate
+        
+        echo "🔧 Initializing custom Airflow Pools..."
+        airflow pools import /opt/airflow/config/airflow-pools.json
+        echo "✅ Infrastructure automation complete."
 
     # yamllint enable rule:line-length
     environment:
