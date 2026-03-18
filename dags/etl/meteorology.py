@@ -4,7 +4,7 @@ import requests
 import xarray as xr
 import numpy as np
 import cfgrib
-from datetime import datetime, timedelta
+import pendulum
 import logging
 from ecmwf.opendata import Client
 import boto3
@@ -28,6 +28,23 @@ class Config:
         'right': 180.0
     }
 weather_config = Config()
+
+# --- METEOROLOGICAL PARAMETER MAPPING ---
+# Consolidates variables across GFS and ECMWF models
+METEO_REGISTRY = {
+    "upper": {
+        "gh": {"gfs": ":HGT:500 mb:", "ecmwf": "gh", "levelist": [500]},
+        "t": {"gfs": ":TMP:850 mb:", "ecmwf": "t", "levelist": [850]},
+        "u": {"gfs": ":UGRD:250 mb:", "ecmwf": "u", "levelist": [250]},
+        "v": {"gfs": ":VGRD:250 mb:", "ecmwf": "v", "levelist": [250]},
+    },
+    "surface": {
+        "2t": {"gfs": ":TMP:2 m above ground:", "ecmwf": "2t"},
+        "2d": {"gfs": ":DPT:2 m above ground:", "ecmwf": "2d"},
+        "msl": {"gfs": ":PRMSL:mean sea level:", "ecmwf": "msl"},
+        "tp": {"gfs": ":APCP:surface:", "ecmwf": "tp"}
+    }
+}
 
 def upload_to_s3_and_cleanup(local_file_path, s3_prefix):
     """
@@ -69,13 +86,16 @@ def upload_to_s3_and_cleanup(local_file_path, s3_prefix):
 def is_future_model_run(date_obj, cycle, model_type="GFS"):
     """
     Physical Boundary Check: Prevents the pipeline from hunting for 'Ghost Data'.
+    Safely integrates Pendulum for timezone-aware evaluation.
     """
     try:
-        run_time = datetime(date_obj.year, date_obj.month, date_obj.day, cycle, 0, 0)
-        current_utc = datetime.utcnow()
+        # Wrap the incoming date_obj (often a standard datetime from Airflow) into a Pendulum instance
+        dt = pendulum.instance(date_obj) if not isinstance(date_obj, pendulum.DateTime) else date_obj
+        run_time = dt.at(cycle, 0, 0).set(tz="UTC")
+        current_utc = pendulum.now("UTC")
         
         buffer_hours = 6.5 if model_type == "ECMWF" else 3.5
-        release_time = run_time + timedelta(hours=buffer_hours)
+        release_time = run_time.add(hours=buffer_hours)
 
         if release_time > current_utc:
             return True
@@ -137,10 +157,10 @@ def download_gfs_robust(date_obj, cycle, step):
     """GFS Downloader (GRIB2 -> Delta Lake)"""
     
     if is_future_model_run(date_obj, cycle, model_type="GFS"):
-        logger.warning(f"🛑 [GFS ETL blocked] Run {date_obj.strftime('%Y%m%d')}_{cycle:02d}z is in the future. Aborting to prevent 404 loops.")
+        logger.warning(f"🛑 [GFS ETL blocked] Run {pendulum.instance(date_obj).format('YYYYMMDD')}_{cycle:02d}z is in the future. Aborting to prevent 404 loops.")
         return False
         
-    date_str = date_obj.strftime("%Y%m%d")
+    date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}"
     
     temp_dir = os.path.join(weather_config.BASE_DIR, "Data", "Temp_GFS_Buffer")
@@ -156,7 +176,11 @@ def download_gfs_robust(date_obj, cycle, step):
             r_idx = requests.get(s3_base + ".idx", timeout=10)
             if r_idx.status_code == 200:
                 lines = r_idx.text.splitlines()
-                target_vars = [':HGT:500 mb:', ':TMP:850 mb:', ':ABSV:500 mb:'] 
+                
+                # Fetch target params directly from the dynamic registry
+                target_vars = [v["gfs"] for k, v in METEO_REGISTRY["upper"].items()] + \
+                              [v["gfs"] for k, v in METEO_REGISTRY["surface"].items()]
+                
                 ranges = []
                 for key in target_vars:
                     for i, line in enumerate(lines):
@@ -174,6 +198,7 @@ def download_gfs_robust(date_obj, cycle, step):
 
     if not download_success:
         nomads_url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
+        # Maintaining NOMADS fallback as requested, hardcoded params remain for backwards compatibility
         params = {
             'file': f'gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}',
             'lev_850_mb': 'on', 'var_TMP': 'on', 
@@ -270,11 +295,11 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
     """ECMWF Unified Downloader (GRIB2 -> Delta Lake)"""
     
     if is_future_model_run(date_obj, cycle, model_type="ECMWF"):
-        logger.warning(f"🛑 [ECMWF ETL blocked] Run {date_obj.strftime('%Y%m%d')}_{cycle:02d}z is in the future. Aborting request.")
+        logger.warning(f"🛑 [ECMWF ETL blocked] Run {pendulum.instance(date_obj).format('YYYYMMDD')}_{cycle:02d}z is in the future. Aborting request.")
         return False
         
     client = Client("ecmwf", beta=False)
-    date_str = date_obj.strftime("%Y%m%d")
+    date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}z"
     
     temp_dir = os.path.join("/opt/airflow", "Data", "Temp_Global_Buffer")
@@ -301,17 +326,21 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
             continue
 
         if 'upper' in task_type:
+            # Map dynamic upper params
+            short_names_upper = [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]
             tasks.append({
                 "name": f"{file_prefix}_upper",
                 "temp_name": f"TEMP_GLOBAL_{file_prefix}_upper_{date_str}_{cycle_str}_{step}h.grib2",
-                "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": ['z', 'gh', 't', 'u', 'v', 'vo']}
+                "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": short_names_upper}
             })
 
         if 'surface' in task_type:
+            # Map dynamic surface params
+            short_names_surf = [v["ecmwf"] for k, v in METEO_REGISTRY["surface"].items()]
             tasks.append({
                 "name": f"{file_prefix}_surface",
                 "temp_name": f"TEMP_GLOBAL_{file_prefix}_surface_{date_str}_{cycle_str}_{step}h.grib2",
-                "params": {**common_params, "levtype": "sfc", "param": ['tp', 'msl', '2t']}
+                "params": {**common_params, "levtype": "sfc", "param": short_names_surf}
             })
 
     all_success = True
