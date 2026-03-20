@@ -1,0 +1,11 @@
+variable_id,level_mb,grib_params,pack_type,physical_significance
+gh,500,"gh,z,129,156",BASIC,Geopotential Height - Steering Flow
+t,850,"t,130",BASIC,Temperature - Thermal Advection
+2t,surface,"2t,167,t2m",SNIPER,2m Temperature - Ground Reality
+2d,surface,"2d,168,d2m",SNIPER,2m Dewpoint - Moisture/Density
+u,250,"u,131",DYNAMICS,Zonal Wind - Jet Stream Intensity
+v,250,"v,132",DYNAMICS,Meridional Wind - Jet Stream Direction
+msl,surface,"msl,151",SURFACE_EXTRA,Mean Sea Level Pressure
+tp,surface,"tp,228,sf",SURFACE_EXTRA,Total Precipitation/Snowfall
+10u,surface,"10u,165,u10",WIND_EXTRA,10m Zonal Wind
+10v,surface,"10v,166,v10",WIND_EXTRA,10m Meridional Wind

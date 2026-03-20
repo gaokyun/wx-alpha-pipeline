@@ -1,0 +1,13 @@
+anchor_id,latitude,longitude,teleconnection,description
+NAO_N,65.0,-22.0,NAO,North Atlantic Oscillation - Iceland Node
+NAO_S,38.0,-28.0,NAO,North Atlantic Oscillation - Azores Node
+EPO_N,60.0,-150.0,EPO,East Pacific Oscillation - Alaska Node
+EPO_S,40.0,-160.0,EPO,East Pacific Oscillation - Southern Node
+AO_Polar,80.0,-70.0,AO,Arctic Oscillation - Polar Vortex Core
+PNA_West,45.0,-125.0,PNA,Pacific Northwest Inlet (Seattle Impact)
+W_C_Ridge,55.0,-115.0,PNA,Western Canada Ridge (Cold Slide Origin)
+GOM_Core,25.0,-90.0,SER,Gulf of Mexico Thermal Core (Houston Heat)
+AO_Rim,45.0,-70.0,AO,Arctic Oscillation - Mid-Latitude Rim
+PNA_Ridge,50.0,-120.0,PNA,Pacific North American - Ridge Anchor (West Coast)
+PNA_Trough,45.0,-160.0,PNA,Pacific North American - Trough Anchor
+SER_Core,32.0,-75.0,SER,Southeast Ridge Core (Bermuda High influence)

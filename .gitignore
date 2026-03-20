@@ -1,0 +1,29 @@
+# Secrets & Configs
+.env
+.user.yml
+# docker-compose.yaml
+# dockerfile.*
+# Dockerfile.*
+
+# Logs
+logs/
+*.log
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+venv/
+.venv/
+
+# dbt
+target/
+dbt_packages/
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

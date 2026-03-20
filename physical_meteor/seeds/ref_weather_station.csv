@@ -1,0 +1,6 @@
+station_id,city_name,state,region,market_weight,associated_hub
+KORD,Chicago,IL,Midwest,0.30,Chicago Citygate
+KNYC,New York City,NY,East,0.25,Transco Zone 6
+KBOS,Boston,MA,NewEngland,0.15,Algonquin Citygate
+KIAH,Houston,TX,South,0.20,Houston Ship Channel
+KSEA,Seattle,WA,West,0.10,Sumas / Northwest

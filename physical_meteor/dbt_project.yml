@@ -1,0 +1,45 @@
+name: 'physical_meteor'
+version: '1.0.0'
+config-version: 2
+
+profile: 'physical_meteor'
+
+# These configurations specify where dbt should look for different types of files.
+# The `model-paths` config, for example, states that models in this project can be
+# found in the "models/" directory. You probably won't need to change these!
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:         # directories to be removed by `dbt clean`
+  - "target"
+  - "dbt_packages"
+
+# Configuring models
+# Full documentation: https://docs.getdbt.com/docs/configuring-models
+models:
+  physical_meteor: # This must match your project name above
+    
+    # 1. GFS specific configuration
+    gfs:
+      +tags: ["gfs", "meteorology"]
+      staging:
+        +materialized: view      # Staging should always be views to save space
+      marts:
+        +materialized: table     # Marts should be tables for fast BI querying
+        
+    # 2. ECMWF specific configuration
+    ecmwf:
+      +tags: ["ecmwf", "meteorology"]
+      staging:
+        +materialized: view
+      marts:
+        +materialized: table
+
+    # 3. Combined/Consensus Configuration
+    combined:
+      +tags: ["consensus", "daily_batch"]
+      +materialized: incremental # Incremental is best for large history tables
