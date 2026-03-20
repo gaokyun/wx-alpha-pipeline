@@ -16,54 +16,30 @@
 # under the License.
 #
 
-# Basic Airflow cluster configuration for CeleryExecutor with Redis and PostgreSQL.
-#
-# WARNING: This configuration is for local development. Do not use it in a production deployment.
-#
-# This configuration supports basic configuration using environment variables or an .env file
-# The following variables are supported:
-#
-# AIRFLOW_IMAGE_NAME           - Docker image name used to run Airflow.
-#                                Default: apache/airflow:3.1.6
-# AIRFLOW_UID                  - User ID in Airflow containers
-#                                Default: 50000
-# AIRFLOW_PROJ_DIR             - Base path to which all the files will be volumed.
-#                                Default: .
-# Those configurations are useful mostly in case of standalone testing/running Airflow in test/try-out mode
-#
-# _AIRFLOW_WWW_USER_USERNAME   - Username for the administrator account (if requested).
-#                                Default: airflow
-# _AIRFLOW_WWW_USER_PASSWORD   - Password for the administrator account (if requested).
-#                                Default: airflow
-# _PIP_ADDITIONAL_REQUIREMENTS - Additional PIP requirements to add when starting all containers.
-#                                Use this option ONLY for quick checks. Installing requirements at container
-#                                startup is done EVERY TIME the service is started.
-#                                A better way is to build a custom image or extend the official image
-#                                as described in https://airflow.apache.org/docs/docker-stack/build.html.
-#                                Default: ''
-#
-# Feel free to modify this file to suit your needs.
 ---
 x-airflow-common:
   &airflow-common
-  # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
-  # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
-  # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  # image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.1.6}
   image: custom-weather-airflow:latest
   build:  
     context: .
-    dockerfile: Dockerfile.airflow  # Replace this with the ACTUAL name of your airflow Dockerfile
+    dockerfile: Dockerfile.airflow
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
     &airflow-common-env
     # --- Infrastructure & Backend ---
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASS}@postgres/airflow
+    AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${POSTGRES_PASS}@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
-    AIRFLOW__CORE__FERNET_KEY: ''
+    
+    # Security & Auth (Synchronized across all nodes)
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
+    AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}  # <-- ADD THIS LINE FOR AIRFLOW 3
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth'
+    
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
 
@@ -96,8 +72,8 @@ x-airflow-common:
         }
       }
     # --- Cloud Provider (AWS) ---
-    AWS_ACC_KEY: ${AWS_ACC_KEY}
-    AWS_SECRET_KEY: ${AWS_SECRET_KEY}
+    AWS_ACCESS_KEY_ID: ${AWS_ACC_KEY}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_KEY}
     AWS_REGION: ${AWS_REGION}
     AWS_S3_BUCKET: ${AWS_S3_BUCKET}
   volumes:
@@ -105,9 +81,6 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-    # Add this exact line to create the physical bridge:
-    # - ${AIRFLOW_PROJ_DIR:-.}/Data:/opt/airflow/Datacd
-    # ADD THIS LINE: The physical bridge to the host Docker daemon
     - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
@@ -136,8 +109,6 @@ services:
     restart: always
 
   redis:
-    # Redis is limited to 7.2-bookworm due to licencing change
-    # https://redis.io/blog/redis-adopts-dual-source-available-licensing/
     image: redis:7.2-bookworm
     expose:
       - 6379
@@ -152,50 +123,47 @@ services:
   dbt-postgres:
     build:
       context: .
-      dockerfile: Dockerfile.dbt_postgres
+      dockerfile: Dockerfile.dbt-postgres
     image: dbt-postgres:latest
     working_dir: /usr/app
-    # container_name: dbt-postgres-runner
-    # SOP: This ensures the container inherits all variables from your .env file
     env_file:
       - .env
     environment:
       - DBT_LOG_PATH=/tmp/dbt/logs
       - DBT_TARGET_PATH=/tmp/dbt/target
     volumes:
-      - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw   # mount your repo
-    entrypoint: ["bash","-c","sleep infinity"]  # keep container alive
+      - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw
+    entrypoint: ["bash","-c","sleep infinity"]
     depends_on:
-      - postgres           # ensure the database is available (uses postgres-db-volume)
+      - postgres
     restart: "no"
 
   dbt-snowflake:
-      build:
-        context: .
-        dockerfile: Dockerfile.dbt_snowflake
-      container_name: dbt-snowflake-runner
-      env_file:
-        - .env
-      environment:
-        - DBT_LOG_PATH=/tmp/dbt/logs
-        - DBT_TARGET_PATH=/tmp/dbt/target
-        # Snowflake connection parameters, ensure these are set in your .env file or override them here
-        - SNOWFLAKE_ACCOUNT=${SNOW_ACC}
-        - SNOWFLAKE_USER=${SNOW_USER}
-        - SNOWFLAKE_PASSWORD=${SNOW_PASS}
-        - SNOWFLAKE_WAREHOUSE=${SNOW_WARE} 
-        - SNOWFLAKE_DATABASE=${SNOW_DB}
-        - SNOWFLAKE_SCHEMA=${SNOW_SCHEMA}     
-      volumes:
-        - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:ro
-      entrypoint: ["bash","-c","sleep infinity"]
-      restart: "no"
+    build:
+      context: .
+      dockerfile: Dockerfile.dbt-snowflake
+    container_name: dbt-snowflake-runner
+    env_file:
+      - .env
+    environment:
+      - DBT_LOG_PATH=/tmp/dbt/logs
+      - DBT_TARGET_PATH=/tmp/dbt/target
+      - SNOWFLAKE_ACCOUNT=${SNOW_ACC}
+      - SNOWFLAKE_USER=${SNOW_USER}
+      - SNOWFLAKE_PASSWORD=${SNOW_PASS}
+      - SNOWFLAKE_WAREHOUSE=${SNOW_WARE} 
+      - SNOWFLAKE_DATABASE=${SNOW_DB}
+      - SNOWFLAKE_SCHEMA=${SNOW_SCHEMA}     
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:ro
+    entrypoint: ["bash","-c","sleep infinity"]
+    restart: "no"
       
   airflow-apiserver:
     <<: *airflow-common
     command: api-server
     ports:
-      - "9340:8080"  # host 9340 mapped to container 8080
+      - "9340:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
       interval: 30s
@@ -225,7 +193,6 @@ services:
 
   airflow-dag-processor:
     <<: *airflow-common
-
     command: dag-processor
     healthcheck:
       test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
@@ -241,22 +208,31 @@ services:
 
   airflow-worker:
     <<: *airflow-common
+    hostname: airflow-worker
+    container_name: airflow-worker
     command: celery worker
     healthcheck:
-      # yamllint disable rule:line-length
       test:
         - "CMD-SHELL"
-        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+        - 'celery --app airflow.providers.celery.executors.celery_executor.app inspect ping -d "celery@airflow-worker" || celery --app airflow.executors.celery_executor.app inspect ping -d "celery@airflow-worker"'
       interval: 30s
       timeout: 10s
       retries: 5
       start_period: 30s
     environment:
       <<: *airflow-common-env
-      # Required to handle warm shutdown of the celery workers properly
-      # See https://airflow.apache.org/docs/docker-stack/entrypoint.html#signal-propagation
       DUMB_INIT_SETSID: "0"
+      AIRFLOW__LOGGING__SERVER_LOG_URL: "http://airflow-worker:8793/log"
     restart: always
+    volumes:
+      # 1. Restore the code and logs mapping
+      - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
+      - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
+      - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
+      - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+      # 2. Keep the Docker socket for dbt
+      - /var/run/docker.sock:/var/run/docker.sock    
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       <<: *airflow-common-depends-on
       airflow-apiserver:
@@ -282,7 +258,6 @@ services:
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
-    # yamllint disable rule:line-length
     command:
       - -c
       - |
@@ -360,9 +335,7 @@ services:
         echo "Files in shared volumes:"
         echo
         ls -la /opt/airflow/{logs,dags,plugins,config}
-        # ---------------------------------------------------------
-        # NEW: Enterprise Infrastructure-as-Code Injection
-        # ---------------------------------------------------------
+        
         echo "🔧 Forcing DB migration to ensure tables exist..."
         airflow db migrate
         
@@ -370,7 +343,6 @@ services:
         airflow pools import /opt/airflow/config/airflow-pools.json
         echo "✅ Infrastructure automation complete."
 
-    # yamllint enable rule:line-length
     environment:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: 'true'
@@ -387,7 +359,6 @@ services:
     environment:
       <<: *airflow-common-env
       CONNECTION_CHECK_MAX_COUNT: "0"
-    # Workaround for entrypoint issue. See: https://github.com/apache/airflow/issues/16252
     command:
       - bash
       - -c
@@ -395,9 +366,6 @@ services:
     depends_on:
       <<: *airflow-common-depends-on
 
-  # You can enable flower by adding "--profile flower" option e.g. docker-compose --profile flower up
-  # or by explicitly targeted on the command line e.g. docker-compose up flower.
-  # See: https://docs.docker.com/compose/profiles/
   flower:
     <<: *airflow-common
     command: celery flower
