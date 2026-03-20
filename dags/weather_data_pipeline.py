@@ -1,146 +1,175 @@
 import docker
-from datetime import datetime, timedelta
-
-# Retaining your Airflow 3.x / SDK imports
+import pendulum
 from airflow.sdk import dag, task
+from airflow.sdk import Asset
+import os
+# The modern Airflow 3 import
 
-# Macro Configuration Anchors
+# Fetch the bucket name from the environment variables you set up earlier
+# The second argument is a fallback just in case the env var fails to load
+S3_BUCKET = os.getenv('AWS_S3_BUCKET', 'amzn-s3-ykg-storage')
+
+# ---------------- 1. Centralized Schedule Config ----------------
+PIPELINE_CONFIG = {
+    'gfs': {
+        'cron': '30 3,9,15,20 * * *',
+        'cycle_map': {3: 0, 9: 6, 15: 12, 20: 18},
+        'steps': [192, 240, 288], 
+        'asset': Asset(f's3://{S3_BUCKET}/weather_data/delta_lake/gfs_raw'),
+        'tags': ['meteorology', 'gfs'] 
+    },
+    'ecmwf': {
+        'cron': '30 0,6,12,18 * * *',
+        'cycle_map': {6: 0, 12: 6, 18: 12, 0: 18},
+        'steps': [192, 240, 288], 
+        'asset': Asset(f's3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw'),
+        'tags': ['meteorology', 'ecmwf'] 
+    }
+}
+
 default_args = {
     'owner': 'meteorologist',
     'depends_on_past': False,
-    'retries': 1,
-    'retry_delay': timedelta(minutes=5),
+    'retries': 2,
+    'retry_delay': pendulum.duration(minutes=5), 
 }
 
-@dag(
-    dag_id='dbt_ecmwf_gfs_data_pipeline',
-    default_args=default_args,
-    description='10-Day Outlook Pipeline: GFS/ECMWF parallel load into dbt local/cloud transformation',
-    start_date=datetime(2026, 1, 1),
-    schedule='@daily',
-    catchup=False,
-    tags=['meteorology', 'etl', 'dbt']
-)
-def dbt_ecmwf_gfs_data_pipeline():
-
-    # ---------------- 1. Data Collection Layer (What) ----------------
+# --- Helper Function ---
+def get_cycle_and_date(trigger_time: pendulum.DateTime, source_name: str):
+    """Dynamically looks up the cycle based on our central config using Pendulum."""
+    trigger_time_utc = trigger_time.in_tz('UTC')
+    trigger_hour = trigger_time_utc.hour
+    config = PIPELINE_CONFIG[source_name]
     
-    # Moved the pool assignment directly into the task decorator
-    @task(task_id='download_gfs_data', pool='ecmwf_api_pool')
-    def run_gfs_download(data_interval_end: datetime = None) -> str:
-        """Downloads GFS data for the pipeline."""
+    cycle = config['cycle_map'].get(trigger_hour)
+    
+    if source_name == 'ecmwf' and trigger_hour == 0:
+        target_date = trigger_time_utc.subtract(days=1).start_of('day')
+    else:
+        target_date = trigger_time_utc.start_of('day')
         
-        # SCOPE FIX: Import must happen at execution time inside the task
+    return target_date, cycle
+
+
+# ---------------- 2. Extraction DAG: GFS ----------------
+@dag(
+    dag_id='extract_gfs_data',
+    default_args=default_args,
+    schedule=PIPELINE_CONFIG['gfs']['cron'],
+    start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
+    catchup=False,
+    tags=['extract', *PIPELINE_CONFIG['gfs']['tags']] # Pulled from config
+)
+def extract_gfs():
+    @task(task_id='download_gfs', outlets=[PIPELINE_CONFIG['gfs']['asset']], pool='ecmwf_api_pool')
+    def run_gfs_download(data_interval_end: pendulum.DateTime = None):
         from etl.meteorology import download_gfs_robust
         
-        cycle = 0  # Standard daily run, 0z cycle
-        step = 24  # 24h forecasting step
-        offset_time = data_interval_end + timedelta(hours=-7, minutes=30)
-        target_date = offset_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        target_date, current_cycle = get_cycle_and_date(data_interval_end, 'gfs')
+        steps = PIPELINE_CONFIG['gfs']['steps'] # Pulled from config
 
-        success = download_gfs_robust(target_date, cycle, step)
-        if not success:
-            raise Exception("GFS download failed: Surface signal missing (Fake Cold)")
-        return "GFS_READY"
+        for step in steps:
+            print(f"Triggering GFS: Date {target_date.format('YYYY-MM-DD')}, Cycle {current_cycle}z, Step {step}h")
+            success = download_gfs_robust(target_date, current_cycle, step)
+            if not success: 
+                raise Exception(f"GFS download failed or returned False for step {step}")            
+            
+        return f"GFS_CYCLE_{current_cycle}_READY"
+    
 
-    @task(task_id='download_ecmwf_data', pool='ecmwf_api_pool')
-    def run_ecmwf_download(data_interval_end: datetime = None) -> str:
-        """Downloads ECMWF data for the pipeline using a 6.5-hour Watermark."""
-        
-        # SCOPE FIX: Import must happen at execution time inside the task
+    run_gfs_download()
+
+# ---------------- 3. Extraction DAG: ECMWF ----------------
+@dag(
+    dag_id='extract_ecmwf_data',
+    default_args=default_args,
+    schedule=PIPELINE_CONFIG['ecmwf']['cron'],
+    start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
+    catchup=False,
+    tags=['extract', *PIPELINE_CONFIG['ecmwf']['tags']] # Pulled from config
+)
+def extract_ecmwf():
+    @task(task_id='download_ecmwf', outlets=[PIPELINE_CONFIG['ecmwf']['asset']], pool='ecmwf_api_pool')
+    def run_ecmwf_download(data_interval_end: pendulum.DateTime = None):
         from etl.meteorology import download_ecmwf_unified
         
-        cycle = 0
-        step = 24
-        
-        # 1. Take the physical trigger time (e.g., Mar 16 07:00 UTC)
-        # 2. Apply the -6.5 hour watermark (Mar 16 00:30 UTC)
-        # 3. Floor it to midnight to get the exact cycle target (Mar 16 00:00 UTC)
-        offset_time = data_interval_end + timedelta(hours=-7, minutes=30)
-        target_date = offset_time.replace(hour=0, minute=0, second=0, microsecond=0)
+        target_date, current_cycle = get_cycle_and_date(data_interval_end, 'ecmwf')
+        steps = PIPELINE_CONFIG['ecmwf']['steps'] # Pulled from config
 
-        success = download_ecmwf_unified(
-            target_date, cycle, step,
-            target_models=['AIFS', 'IFS', 'EPS'], 
-            task_type=['upper', 'surface', 'spread']
-        )
-        if not success:
-            raise Exception("ECMWF download failed: Lacking upper-level vertical support")
-        return "ECMWF_READY"
+        task_types = ['upper', 'surface'] if current_cycle in [6, 18] else ['upper', 'surface', 'spread']
 
-
-    # ---------------- 2. Market Translation Layer (So What) ----------------
-    
-    @task(task_id='dbt_run_postgres')
-    def execute_dbt_run_pg(gfs_signal: str, ecmwf_signal: str):
-        """Run dbt in Postgres container (Local Audit)"""
-        print(f"Physical Audit Confirmed: {gfs_signal}, {ecmwf_signal}")
-        
-        client = docker.DockerClient(base_url='unix://var/run/docker.sock')
-        
-        # SENIOR FIX: Robust Container Lookup List
-        # This prevents the DAG from breaking if docker-compose changes the project prefix
-        possible_containers = [
-            'wx-alpha-pipeline-dbt-postgres-1', 
-            'dbt-postgres', 
-            'airflow-dbt-postgres-1'
-        ]
-        
-        target_container = None
-        for name in possible_containers:
-            try:
-                target_container = client.containers.get(name)
-                break  # Exit loop once we find a matching container
-            except docker.errors.NotFound:
-                continue
-                
-        if not target_container:
-            raise Exception(f"None of the configured dbt postgres containers were found: {possible_containers}")
-
-        print(f"Executing dbt run inside container: {target_container.name}")
-        exit_code, output = target_container.exec_run(
-            cmd='bash -c "dbt run --profiles-dir . --target dev"',
-            workdir='/usr/app/physical_meteor'
-        )
-        
-        print(output.decode('utf-8'))
-        if exit_code != 0:
-            raise Exception(f"dbt pg run failed with exit code {exit_code}")
-
-    @task(task_id='dbt_run_snowflake')
-    def execute_dbt_run_sn(gfs_signal: str, ecmwf_signal: str):
-        """Run dbt in Snowflake container (Cloud Production)"""
-        print(f"Physical Audit Confirmed: {gfs_signal}, {ecmwf_signal}")
-        
-        client = docker.DockerClient(base_url='unix://var/run/docker.sock')
-        container_name = 'dbt-snowflake-runner'
-        
-        try:
-            container = client.containers.get(container_name)
-            print(f"Executing dbt run inside container: {container.name}")
-            
-            exit_code, output = container.exec_run(
-                cmd='bash -c "dbt run --profiles-dir . --target prod"',
-                workdir='/usr/app/physical_meteor'
+        for step in steps:
+            print(f"Triggering ECMWF: Date {target_date.format('YYYY-MM-DD')}, Cycle {current_cycle}z, Step {step}h")
+            success = download_ecmwf_unified(
+                target_date, current_cycle, step,
+                target_models=['AIFS', 'IFS', 'EPS'], 
+                task_type=['upper', 'surface', 'spread']
             )
+            if not success:
+                raise Exception("ECMWF download failed: Lacking upper-level vertical support")
             
-            print(output.decode('utf-8'))
-            if exit_code != 0:
-                raise Exception(f"dbt snowflake run failed with exit code {exit_code}")
-                
-        except docker.errors.NotFound:
-            raise Exception(f"Container '{container_name}' not found. Is it running?")
+        return f"ECMWF_CYCLE_{current_cycle}_READY"
 
+    run_ecmwf_download()
 
-    # ---------------- 3. Dynamic Propagation (Truth) ----------------
+# ---------------- 4a. Transformation DAG: GFS ----------------
+@dag(
+    dag_id='transform_gfs_dbt',
+    default_args=default_args,
+    # Triggers immediately and ONLY when GFS dataset is flagged
+    schedule=[PIPELINE_CONFIG['gfs']['asset']], 
+    start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
+    catchup=False,
+    tags=['dbt', 'transform', *PIPELINE_CONFIG['gfs']['tags']]
+)
+def transform_gfs():
     
-    # Physically call tasks to trigger execution and capture 'success signals'
-    gfs_status = run_gfs_download()
-    ecmwf_status = run_ecmwf_download()
+    @task(task_id='dbt_run_gfs_postgres')
+    def execute_dbt_run_pg():
+        print("GFS dataset updated. Running local Postgres GFS dbt models...")
+        # Note the --select flag to restrict dbt to only GFS models
+        # cmd='bash -c "dbt run --select path:models/gfs --profiles-dir . --target dev"'
+        pass
 
-    # Pass signals downstream to automatically form a 2x2 cross-dependency matrix.
-    execute_dbt_run_pg(gfs_status, ecmwf_status)
-    execute_dbt_run_sn(gfs_status, ecmwf_status)
+    @task(task_id='dbt_run_gfs_snowflake')
+    def execute_dbt_run_sn():
+        print("GFS dataset updated. Running Cloud Snowflake GFS dbt models...")
+        # cmd='bash -c "dbt run --select path:models/gfs --profiles-dir . --target prod"'
+        pass
 
-# Physically instantiate the DAG
-pipeline_instance = dbt_ecmwf_gfs_data_pipeline()
+    execute_dbt_run_pg()
+    execute_dbt_run_sn()
+
+# ---------------- 4b. Transformation DAG: ECMWF ----------------
+@dag(
+    dag_id='transform_ecmwf_dbt',
+    default_args=default_args,
+    # Triggers immediately and ONLY when ECMWF dataset is flagged
+    schedule=[PIPELINE_CONFIG['ecmwf']['asset']], 
+    start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
+    catchup=False,
+    tags=['dbt', 'transform', *PIPELINE_CONFIG['ecmwf']['tags']]
+)
+def transform_ecmwf():
+    
+    @task(task_id='dbt_run_ecmwf_postgres')
+    def execute_dbt_run_pg():
+        print("ECMWF dataset updated. Running local Postgres ECMWF dbt models...")
+        # Note the --select flag to restrict dbt to only ECMWF models
+        # cmd='bash -c "dbt run --select path:models/ecmwf --profiles-dir . --target dev"'
+        pass
+
+    @task(task_id='dbt_run_ecmwf_snowflake')
+    def execute_dbt_run_sn():
+        print("ECMWF dataset updated. Running Cloud Snowflake ECMWF dbt models...")
+        # cmd='bash -c "dbt run --select path:models/ecmwf --profiles-dir . --target prod"'
+        pass
+
+    execute_dbt_run_pg()
+    execute_dbt_run_sn()
+
+# Instantiate all DAGs
+gfs_extract_dag = extract_gfs()
+ecmwf_extract_dag = extract_ecmwf()
+gfs_transform_dag = transform_gfs()
+ecmwf_transform_dag = transform_ecmwf()

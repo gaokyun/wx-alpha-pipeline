@@ -251,14 +251,15 @@ def download_gfs_robust(date_obj, cycle, step):
                 
                 # Coerce columns to strings for Delta Lake schema compatibility
                 df.columns = [str(c) for c in df.columns]
-                # ---------------------------------------------------------
-                # NEW: Delta Lake Schema Sanitization
-                # Convert timedelta/Duration columns (like 'step') into Float Hours
-                # ---------------------------------------------------------
+                
+                # Convert timedelta/Duration columns into Float Hours
                 for col in df.select_dtypes(include=['timedelta64[ns]', 'timedelta64']).columns:
                     df[col] = df[col].dt.total_seconds() / 3600.0
 
-                delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta/gfs_upper/"
+                # ---------------------------------------------------------
+                # ✅ SENIOR FIX: Aligned with Airflow Dataset 'gfs_raw'
+                # ---------------------------------------------------------
+                delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/gfs_raw/"
                 logger.info(f"Writing ACID transaction to Delta Table: {delta_table_s3_path}")
                 
                 storage_options = {
@@ -271,8 +272,7 @@ def download_gfs_robust(date_obj, cycle, step):
                     delta_table_s3_path,
                     df,
                     mode="append",
-                    storage_options=storage_options #,
-                    #engine="rust"
+                    storage_options=storage_options
                 )
 
                 logger.info("✅ [GFS-DELTA] Transaction committed successfully.")
@@ -392,9 +392,13 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
                     df[col] = df[col].dt.total_seconds() / 3600.0
                 
                 # Dynamically construct the Delta table root based on task name
-                delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta/ecmwf_{task['name']}/"
+                # ---------------------------------------------------------
+                # ✅ SENIOR FIX: Aligned with Airflow Dataset 'ecmwf_raw'
+                # Appends task['name'] to isolate schemas (e.g., /ecmwf_raw/at_ifs_upper/)
+                # ---------------------------------------------------------
+                delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task['name']}/"
                 logger.info(f"Writing ACID transaction to Delta Table: {delta_table_s3_path}")
-                
+
                 storage_options = {
                     "AWS_ACCESS_KEY_ID": weather_config.AWS_ACC_KEY,
                     "AWS_SECRET_ACCESS_KEY": weather_config.AWS_SECRET_KEY,

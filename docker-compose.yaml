@@ -58,33 +58,30 @@ x-airflow-common:
     - ${ENV_FILE_PATH:-.env}
   environment:
     &airflow-common-env
+    # --- Infrastructure & Backend ---
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
-    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
     AIRFLOW__CORE__FERNET_KEY: ''
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'true'
+    AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
-    # yamllint disable rule:line-length
-    # Use simple http server on scheduler for health checks
-    # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
-    # yamllint enable rule:line-length
+
+    # --- UI & Auth ---
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
+
+    # --- Scheduler Performance Tuning ---
+    AIRFLOW__SCHEDULER__SCHEDULER_IDLE_SLEEP_TIME: 1
+    AIRFLOW__SCHEDULER__MAX_DAGRUN_TO_CREATE_PER_LOOP: 10
+    AIRFLOW__SCHEDULER__CATCHUP_BY_DEFAULT: 'false'
+    AIRFLOW__SCHEDULER__MAX_TIS_PER_QUERY: 16
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
-    # for other purpose (development, test and especially production usage) build/extend Airflow image.
-    # by default we install the postgres and snowflake providers so the
-    # corresponding operators/hooks are available
-    # _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS} 
-    # _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow-providers-docker docker ecmwf-opendata xarray cfgrib}
-    # 1. Local Postgres Connection (Self-referencing the 'postgres' service)
+    AIRFLOW__SCHEDULER__SCHEDULER_HEALTH_CHECK_SERVER_PORT: 8974
+
+    # --- External Connections (Snowflake/Postgres) ---
     AIRFLOW_CONN_POSTGRES_DEFAULT: 'postgres://airflow:${POSTGRES_PASS}@postgres:5432/airflow'
-    # 2. Snowflake Connection (Using your .env variables)
-    # Note: Special characters in passwords must be URL-encoded
-    # AIRFLOW_CONN_SNOWFLAKE_CONN: 'snowflake://${SNOW_USER}:${SNOW_PASS}@${SNOW_ACC}/?warehouse=${SNOW_WARE}&database=${SNOW_DB}&schema=${SNOW_SCHEMA}'
-    # AIRFLOW_CONN_SNOWFLAKE_CONN: 'snowflake://${SNOW_USER}:${SNOW_PASS}@${SNOW_ACC}/?warehouse=${SNOW_WARE}&database=${SNOW_DB}&schema=${SNOW_SCHEMA}&role=${SNOW_ROLE}'
-    # Inside x-airflow-common -> environment -> airflow-common-env
     AIRFLOW_CONN_SNOWFLAKE_CONN: >
       {
         "conn_type": "snowflake",
@@ -98,9 +95,7 @@ x-airflow-common:
           "role": "${SNOW_ROLE:-ACCOUNTADMIN}"
         }
       }
-    # ${_PIP_ADDITIONAL_REQUIREMENTS:-apache-airflow-providers-postgres apache-airflow-providers-snowflake}
-    # The following line can be used to set a custom config file, stored in the local config folder
-    AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+    # --- Cloud Provider (AWS) ---
     AWS_ACC_KEY: ${AWS_ACC_KEY}
     AWS_SECRET_KEY: ${AWS_SECRET_KEY}
     AWS_REGION: ${AWS_REGION}
