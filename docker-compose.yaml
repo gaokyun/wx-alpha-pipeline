@@ -23,6 +23,7 @@ x-airflow-common:
   build:  
     context: .
     dockerfile: Dockerfile.airflow
+    network: host
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -132,6 +133,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dbt-postgres
+      network: host
     image: dbt-postgres:latest
     working_dir: /usr/app
     env_file:
@@ -150,6 +152,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dbt-snowflake
+      network: host
     container_name: dbt-snowflake-runner
     env_file:
       - .env
@@ -171,15 +174,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+      network: host
     container_name: jupyter-developer-env
-    # ADD THIS LINE:
-    entrypoint: ["/bin/bash", "-c"]
-    # We add a quick 'mkdir' to ensure the user has a place to write config
     command: >
-      "mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
-       jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir='/opt/airflow'"
+      /home/airflow/.local/bin/jupyter lab 
+      --ip=0.0.0.0 
+      --port=9330 
+      --no-browser 
+      --ServerApp.root_dir='/opt/airflow'
     working_dir: /opt/airflow
-    user: "50000:0"  # Force the Airflow user
+    user: "${AIRFLOW_UID:-50000}:0"  # Force the Airflow user
     ports:
       - "9330:9330"
     volumes:
@@ -271,7 +275,6 @@ services:
       - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
       # 2. Keep the Docker socket for dbt
       - /var/run/docker.sock:/var/run/docker.sock    
-      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       <<: *airflow-common-depends-on
       airflow-apiserver:
@@ -376,10 +379,10 @@ services:
         ls -la /opt/airflow/{logs,dags,plugins,config}
         
         echo "🔧 Forcing DB migration to ensure tables exist..."
-        airflow db migrate
+        /entrypoint airflow db migrate  # <--- ADD /entrypoint
         
         echo "🔧 Initializing custom Airflow Pools..."
-        airflow pools import /opt/airflow/config/airflow-pools.json
+        /entrypoint airflow pools import /opt/airflow/config/airflow-pools.json # <--- ADD /entrypoint
         echo "✅ Infrastructure automation complete."
 
     environment:
@@ -389,7 +392,7 @@ services:
       _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_UI_USER:-airflow}
       _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_UI_PASS:-airflow}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
-    user: "0:0"
+    user: "${AIRFLOW_UID:-50000}:0"
 
   airflow-cli:
     <<: *airflow-common

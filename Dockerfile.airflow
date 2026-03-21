@@ -22,11 +22,14 @@ USER airflow
 # Install meteorological stack + Jupyter + DE tools
 # Note: Airflow images use a specific layout; pip install --user is default
 RUN pip install --no-cache-dir \
-    jupyterlab \
-    ecmwf-opendata xarray cfgrib netCDF4 \
-    pandas docker boto3 pyarrow deltalake \
+    #jupyterlab \
+    #ecmwf-opendata xarray cfgrib netCDF4 \
+    #pandas boto3 pyarrow deltalake \
     apache-airflow-providers-amazon \
     snowflake-connector-python \
     plotly dash python-dotenv sqlalchemy psycopg2-binary
 # COPY requirements.txt .
 # RUN pip install --no-cache-dir -r requirements.txt
+
+# Pre-create the config folders so the container is ready to go
+RUN mkdir -p /home/airflow/.local /home/airflow/.jupyter
