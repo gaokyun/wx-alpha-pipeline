@@ -76,6 +76,7 @@ x-airflow-common:
     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_KEY}
     AWS_REGION: ${AWS_REGION}
     AWS_S3_BUCKET: ${AWS_S3_BUCKET}
+    JUPYTER_PASSWORD_HASH: ${JUPYTER_PASS_HASH}
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
@@ -89,6 +90,13 @@ x-airflow-common:
       condition: service_healthy
     postgres:
       condition: service_healthy
+
+networks:
+  default:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
 
 services:
   postgres:
@@ -158,7 +166,32 @@ services:
       - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:ro
     entrypoint: ["bash","-c","sleep infinity"]
     restart: "no"
-      
+
+  jupyterlab:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    container_name: jupyter-developer-env
+    # ADD THIS LINE:
+    entrypoint: ["/bin/bash", "-c"]
+    # We add a quick 'mkdir' to ensure the user has a place to write config
+    command: >
+      "mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
+       jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir='/opt/airflow'"
+    working_dir: /opt/airflow
+    user: "50000:0"  # Force the Airflow user
+    ports:
+      - "9330:9330"
+    volumes:
+      - /home/airflow/dev/notebooks:/opt/airflow/notebooks
+      - /home/airflow/dev/data:/opt/airflow/data
+      - /home/airflow/dev/wx-alpha-pipeline:/opt/airflow/wx-alpha-pipeline
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+      - JUPYTER_PASSWORD_HASH=${JUPYTER_PASS_HASH}
+      - AIRFLOW_UID=50000 
+    restart: always
+
   airflow-apiserver:
     <<: *airflow-common
     command: api-server
