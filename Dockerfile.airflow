@@ -1,24 +1,32 @@
-# Use your current version
+# Use specified Airflow 3 version
 FROM apache/airflow:3.1.6
 
 USER root
-# Physical Requirement: Install the C libraries for GRIB processing
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends libeccodes-dev \
-  && apt-get autoremove -yqq --purge \
-  && apt-get clean \
-  && rm -rf /var/lib/apt/lists/*
+
+# Fix for OCI Exit Code 100: Increase retries and use a stable DNS if needed
+RUN apt-get update || (sleep 5 && apt-get update) && \
+    apt-get install -y --no-install-recommends \
+    libeccodes-dev \
+    build-essential \
+    libpq-dev \
+    sudo \
+    && apt-get autoremove -yqq --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Allow the airflow user to use sudo (useful for lab debugging)
+RUN echo "airflow ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 USER airflow
-# Install your meteorological stack
+
+# Install meteorological stack + Jupyter + DE tools
+# Note: Airflow images use a specific layout; pip install --user is default
 RUN pip install --no-cache-dir \
-    ecmwf-opendata \
-    xarray \
-    cfgrib \
-    netCDF4 \
-    pandas \
-    docker \
-    boto3 \
-    pyarrow \
-    deltalake \
-    apache-airflow-providers-amazon
+    jupyterlab \
+    ecmwf-opendata xarray cfgrib netCDF4 \
+    pandas docker boto3 pyarrow deltalake \
+    apache-airflow-providers-amazon \
+    snowflake-connector-python \
+    plotly dash python-dotenv sqlalchemy psycopg2-binary
+# COPY requirements.txt .
+# RUN pip install --no-cache-dir -r requirements.txt
