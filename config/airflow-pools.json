@@ -1,0 +1,10 @@
+{
+  "ecmwf_api_pool": {
+    "description": "Rate limit protection",
+    "slots": 2
+  },
+  "snowflake_heavy_pool": {
+    "description": "Limits heavy dbt models",
+    "slots": 5
+  }
+}
