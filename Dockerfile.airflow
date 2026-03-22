@@ -27,9 +27,9 @@ RUN pip install --no-cache-dir \
     #pandas boto3 pyarrow deltalake \
     apache-airflow-providers-amazon \
     snowflake-connector-python \
-    plotly dash python-dotenv sqlalchemy psycopg2-binary
+    # plotly dash python-dotenv sqlalchemy psycopg2-binary
 # COPY requirements.txt .
 # RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-create the config folders so the container is ready to go
-RUN mkdir -p /home/airflow/.local /home/airflow/.jupyter
+# RUN mkdir -p /home/airflow/.local /home/airflow/.jupyter
