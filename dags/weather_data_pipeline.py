@@ -4,12 +4,16 @@ from airflow.sdk import dag, task, Asset
 
 S3_BUCKET = os.getenv('AWS_S3_BUCKET', 'amzn-s3-ykg-storage')
 
-# ---------------- 1. Exact Release Timelines (Buffer Hours) ----------------
+# ---------------- 1. Global Pipeline Configuration ----------------
+# Exact Release Timelines (Buffer Hours)
 SCHEDULES = {
     'aifs-upper': 6.93, 'aifs-surface': 6.93, 'aifs-spread': 7.57,
     'ifs-upper': 7.57, 'ifs-surface': 6.93, 'ifs-spread': 7.67, 
     'gfs-upper': 4.67
 }
+
+# Forecast hours to extract
+TARGET_STEPS = [192, 240, 288]
 
 # ---------------- 2. Granular Asset Definitions ----------------
 ASSETS = {
@@ -65,7 +69,9 @@ def get_cycle_and_date(trigger_time: pendulum.DateTime, task_key: str):
 # ---------------- 4. Dynamic DAG Generation Engine ----------------
 def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
     """Factory function to isolate scope and generate highly specific extraction DAGs."""
-    dag_id = f'extract_{mod}_{ttyp}'
+    
+    # Applied Dot-Notation Hierarchy here:
+    dag_id = f'weather_ops.extract.{mod}.{ttyp}'
     cron_expr = generate_cron(buf_hours, mod)
     
     @dag(
@@ -80,13 +86,12 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
         @task(task_id=f'download_{mod}_{ttyp}', outlets=[ASSETS[t_key]])
         def run_download(data_interval_end: pendulum.DateTime = None):
             target_date, cycle = get_cycle_and_date(data_interval_end, t_key)
-            steps = [192, 240, 288]
             
             print(f"Triggering {mod.upper()} {ttyp.upper()} | Date: {target_date.format('YYYY-MM-DD')} | Cycle: {cycle}z")
             
             if mod == 'gfs':
                 from etl.meteorology import download_gfs_robust
-                for step in steps:
+                for step in TARGET_STEPS:
                     success = download_gfs_robust(target_date, cycle, step)
                     if not success: 
                         raise Exception(f"GFS download failed at step {step}h")
@@ -98,7 +103,7 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
                     print(f"Skipping {mod}-spread for cycle {cycle}z.")
                     return f"SKIPPED_{mod}_SPREAD"
                     
-                for step in steps:
+                for step in TARGET_STEPS:
                     success = download_ecmwf_unified(
                         target_date, 
                         cycle, 
@@ -124,7 +129,7 @@ for task_key, buffer_hours in SCHEDULES.items():
 
 # ---------------- 6a. Transformation DAG: GFS ----------------
 @dag(
-    dag_id='transform_gfs_dbt',
+    dag_id='weather_ops.transform.gfs_dbt',
     default_args=default_args,
     schedule=[ASSETS['gfs-upper']], # Triggers strictly when GFS is fully materialized
     start_date=pendulum.datetime(2026, 1, 1, tz="UTC"),
@@ -144,7 +149,7 @@ def transform_gfs():
 
 # ---------------- 6b. Transformation DAG: ECMWF ----------------
 @dag(
-    dag_id='transform_ecmwf_dbt',
+    dag_id='weather_ops.transform.ecmwf_dbt',
     default_args=default_args,
     # Triggers only when ALL 6 underlying ECMWF assets have been successfully updated
     schedule=[
