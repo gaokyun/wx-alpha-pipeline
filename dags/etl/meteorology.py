@@ -1,25 +1,28 @@
 import os
 import time
+import logging
 import requests
 import xarray as xr
 import numpy as np
 import cfgrib
 import pendulum
-import logging
-from ecmwf.opendata import Client
 import boto3
 from botocore.exceptions import ClientError
+from ecmwf.opendata import Client
 from deltalake.writer import write_deltalake
 
 # Configure logger
 logger = logging.getLogger(__name__)
 
+# ==============================================================================
+# CONFIGURATION & REGISTRY
+# ==============================================================================
 class Config:
     BASE_DIR = os.environ.get('AIRFLOW_HOME', '/opt/airflow')
-    S3_BUCKET = os.environ.get('AWS_S3_BUCKET')
+    S3_BUCKET = os.environ.get('AWS_S3_BUCKET', 'amzn-s3-ykg-storage')
     AWS_ACC_KEY = os.environ.get('AWS_ACC_KEY')
     AWS_SECRET_KEY = os.environ.get('AWS_SECRET_KEY')
-    AWS_REGION = os.environ.get('AWS_REGION')
+    AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
 
     REGION_US = {
         'top': 90.0,
@@ -27,9 +30,16 @@ class Config:
         'left': -180.0,
         'right': 180.0
     }
+    
+    # Exact Release Timelines (Buffer Hours)
+    SCHEDULES = {
+        'aifs-upper': 6.93, 'aifs-surface': 6.93, 'aifs-spread': 7.57,
+        'ifs-upper': 7.57, 'ifs-surface': 6.93, 'ifs-spread': 7.67, 
+        'gfs-upper': 4.67
+    }
+
 weather_config = Config()
 
-# --- METEOROLOGICAL PARAMETER MAPPING ---
 # Consolidates variables across GFS and ECMWF models
 METEO_REGISTRY = {
     "upper": {
@@ -46,6 +56,9 @@ METEO_REGISTRY = {
     }
 }
 
+# ==============================================================================
+# UTILITY FUNCTIONS
+# ==============================================================================
 def upload_to_s3_and_cleanup(local_file_path, s3_prefix):
     """
     Physical Delivery: Pushes the local NetCDF file to S3 dynamically and destroys the local copy.
@@ -57,18 +70,9 @@ def upload_to_s3_and_cleanup(local_file_path, s3_prefix):
                              region_name=weather_config.AWS_REGION)
     
     file_name = os.path.basename(local_file_path)
-
-    AWS_ACC_KEY = weather_config.AWS_ACC_KEY
-    AWS_SECRET_KEY = weather_config.AWS_SECRET_KEY
-    AWS_REGION = weather_config.AWS_REGION
-    S3_BUCKET = weather_config.S3_BUCKET
-
-    logger.info(f"Config Initialized: S3_BUCKET={S3_BUCKET},AWS_REGION={AWS_REGION}, AWS_ACC_KEY={'***' if AWS_ACC_KEY else 'NOT SET'}, AWS_SECRET_KEY={'**HIDDEN**' if AWS_SECRET_KEY else 'NOT SET'}")
-
     target_bucket = weather_config.S3_BUCKET
-    logger.info(f"******* Uploading {file_name} to s3://{target_bucket}/{s3_prefix}...")
 
-    if not target_bucket or target_bucket is None:
+    if not target_bucket:
         logger.error("🛑 CRITICAL: AWS_S3_BUCKET environment variable is missing!")
         return False
 
@@ -83,18 +87,22 @@ def upload_to_s3_and_cleanup(local_file_path, s3_prefix):
         logger.error(f"❌ S3 Upload Failed: {e}")
         return False
         
-def is_future_model_run(date_obj, cycle, model_type="GFS"):
+def is_future_model_run(date_obj, cycle, task_key="gfs-upper"):
     """
     Physical Boundary Check: Prevents the pipeline from hunting for 'Ghost Data'.
-    Safely integrates Pendulum for timezone-aware evaluation.
+    Safely integrates Pendulum for timezone-aware evaluation using precise buffer schedules.
     """
+    # Prevent EPS spread from checking/failing on off-cycles (06z, 18z)
+    if cycle in [6, 18] and 'spread' in task_key:
+        return True
+        
     try:
-        # Wrap the incoming date_obj (often a standard datetime from Airflow) into a Pendulum instance
         dt = pendulum.instance(date_obj) if not isinstance(date_obj, pendulum.DateTime) else date_obj
         run_time = dt.at(cycle, 0, 0).set(tz="UTC")
         current_utc = pendulum.now("UTC")
         
-        buffer_hours = 6.5 if model_type == "ECMWF" else 3.5
+        # Dynamically pull the exact buffer hours for the specific model/task
+        buffer_hours = weather_config.SCHEDULES.get(task_key, 4.67) 
         release_time = run_time.add(hours=buffer_hours)
 
         if release_time > current_utc:
@@ -106,7 +114,7 @@ def is_future_model_run(date_obj, cycle, model_type="GFS"):
 
 def crop_to_nh_safe(ds):
     """
-    [Northern Hemisphere Full Panorama Cropper - Final Version]
+    Northern Hemisphere Full Panorama Cropper
     """
     try:
         if 'longitude' in ds.coords:
@@ -132,7 +140,7 @@ def crop_to_nh_safe(ds):
         return None    
 
 def _download_s3_range(url, ranges, target_path):
-    """S3 Byte-Range Download Helper Function"""
+    """S3 Byte-Range Download Helper Function for GFS"""
     try:
         with open(target_path, 'wb') as f_out:
             for start, end in ranges:
@@ -153,10 +161,16 @@ def _download_s3_range(url, ranges, target_path):
         logger.warning(f"S3 Range Download Failed: {e}")
         return False
 
+
+# ==============================================================================
+# DATA EXTRACTORS
+# ==============================================================================
+
 def download_gfs_robust(date_obj, cycle, step):
     """GFS Downloader (GRIB2 -> Delta Lake)"""
+    task_key = "gfs-upper"
     
-    if is_future_model_run(date_obj, cycle, model_type="GFS"):
+    if is_future_model_run(date_obj, cycle, task_key):
         logger.warning(f"🛑 [GFS ETL blocked] Run {pendulum.instance(date_obj).format('YYYYMMDD')}_{cycle:02d}z is in the future. Aborting to prevent 404 loops.")
         return False
         
@@ -177,7 +191,6 @@ def download_gfs_robust(date_obj, cycle, step):
             if r_idx.status_code == 200:
                 lines = r_idx.text.splitlines()
                 
-                # Fetch target params directly from the dynamic registry
                 target_vars = [v["gfs"] for k, v in METEO_REGISTRY["upper"].items()] + \
                               [v["gfs"] for k, v in METEO_REGISTRY["surface"].items()]
                 
@@ -198,7 +211,6 @@ def download_gfs_robust(date_obj, cycle, step):
 
     if not download_success:
         nomads_url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
-        # Maintaining NOMADS fallback as requested, hardcoded params remain for backwards compatibility
         params = {
             'file': f'gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}',
             'lev_850_mb': 'on', 'var_TMP': 'on', 
@@ -238,27 +250,18 @@ def download_gfs_robust(date_obj, cycle, step):
             ds_nh = crop_to_nh_safe(ds)
             
             if ds_nh is not None:
-                # ---------------------------------------------------------
-                # PATH C: NATIVE DELTA LAKE TRANSACTION (GFS)
-                # ---------------------------------------------------------
                 logger.info("Flattening GFS grid to Pandas DataFrame...")
                 df = ds_nh.to_dataframe().reset_index()
 
-                # Drop NaN to compress payload
                 target_var = 'gh' if 'gh' in df.columns else ('z' if 'z' in df.columns else None)
                 if target_var:
                     df = df.dropna(subset=[target_var])
                 
-                # Coerce columns to strings for Delta Lake schema compatibility
                 df.columns = [str(c) for c in df.columns]
                 
-                # Convert timedelta/Duration columns into Float Hours
                 for col in df.select_dtypes(include=['timedelta64[ns]', 'timedelta64']).columns:
                     df[col] = df[col].dt.total_seconds() / 3600.0
 
-                # ---------------------------------------------------------
-                # ✅ SENIOR FIX: Aligned with Airflow Dataset 'gfs_raw'
-                # ---------------------------------------------------------
                 delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/gfs_raw/"
                 logger.info(f"Writing ACID transaction to Delta Table: {delta_table_s3_path}")
                 
@@ -291,10 +294,14 @@ def download_gfs_robust(date_obj, cycle, step):
             return False
     return False
 
-def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'], task_type=["upper", 'surface', 'spread']):
+
+def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type='upper'): 
     """ECMWF Unified Downloader (GRIB2 -> Delta Lake)"""
     
-    if is_future_model_run(date_obj, cycle, model_type="ECMWF"):
+    # Standardize the task key for the schedule/future check
+    task_key = f"{target_model.lower()}-{task_type.lower()}"
+
+    if is_future_model_run(date_obj, cycle, task_key):
         logger.warning(f"🛑 [ECMWF ETL blocked] Run {pendulum.instance(date_obj).format('YYYYMMDD')}_{cycle:02d}z is in the future. Aborting request.")
         return False
         
@@ -305,53 +312,67 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
     temp_dir = os.path.join("/opt/airflow", "Data", "Temp_Global_Buffer")
     os.makedirs(temp_dir, exist_ok=True)
     
-    tasks = []
+    model_type = target_model.upper()
+    task_dict = None
 
-    for model_type in target_models:
+    # 1. Base parameters setup
+    if model_type == 'AIFS':
+        common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
+        file_prefix = "at_aifs"
+    elif model_type == 'IFS':
+        common_params = {"class": "od", "stream": "oper", "type": "fc", "levtype": "pl", "step": step}
+        file_prefix = "at_ifs"   
+    else:
+        logger.error(f"❌ Unknown target_model: {target_model}")
+        return False
+
+    # 2. Specific Task Dictionary Construction
+    if task_type == 'spread':
         if model_type == 'AIFS':
-            common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
-            file_prefix = "at_aifs"
-        elif model_type == 'IFS':
-            common_params = {"class": "od", "stream": "oper", "type": "fc", "levtype": "pl", "step": step}
-            file_prefix = "at_ifs"   
-        elif model_type == 'EPS' and cycle in [0, 12] and 'spread' in task_type:
-            tasks.append({
-                "name": "eps_spread",
-                "temp_name": f"TEMP_GLOBAL_eps_{date_str}_{cycle_str}_{step}h.grib2",
+            task_dict = {
+                "name": "aifs_spread",
+                "temp_name": f"TEMP_GLOBAL_aifs_eps_{date_str}_{cycle_str}_{step}h.grib2",
                 "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", 
                            "levelist": [500, 850], "param": ['z', 't'], "step": step}
-            })
-            continue
-        else:
-            continue
-
-        if 'upper' in task_type:
-            # Map dynamic upper params
-            short_names_upper = [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]
-            tasks.append({
-                "name": f"{file_prefix}_upper",
-                "temp_name": f"TEMP_GLOBAL_{file_prefix}_upper_{date_str}_{cycle_str}_{step}h.grib2",
-                "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": short_names_upper}
-            })
-
-        if 'surface' in task_type:
-            # Map dynamic surface params
-            short_names_surf = [v["ecmwf"] for k, v in METEO_REGISTRY["surface"].items()]
-            tasks.append({
-                "name": f"{file_prefix}_surface",
-                "temp_name": f"TEMP_GLOBAL_{file_prefix}_surface_{date_str}_{cycle_str}_{step}h.grib2",
-                "params": {**common_params, "levtype": "sfc", "param": short_names_surf}
-            })
+            }
+        elif model_type == 'IFS':
+            task_dict = {
+                "name": "ifs_spread",
+                "temp_name": f"TEMP_GLOBAL_ifs_eps_{date_str}_{cycle_str}_{step}h.grib2",
+                "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", 
+                           "levelist": [500, 850], "param": ['z', 't'], "step": step}
+            }
+            
+    elif task_type == 'upper':
+        short_names_upper = [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]
+        task_dict = {
+            "name": f"{file_prefix}_upper",
+            "temp_name": f"TEMP_GLOBAL_{file_prefix}_upper_{date_str}_{cycle_str}_{step}h.grib2",
+            "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": short_names_upper}
+        }
+        
+    elif task_type == 'surface':
+        short_names_surf = [v["ecmwf"] for k, v in METEO_REGISTRY["surface"].items()]
+        task_dict = {
+            "name": f"{file_prefix}_surface",
+            "temp_name": f"TEMP_GLOBAL_{file_prefix}_surface_{date_str}_{cycle_str}_{step}h.grib2",
+            "params": {**common_params, "levtype": "sfc", "param": short_names_surf}
+        }
+        
+    else:
+        logger.error(f"❌ Unknown task_type: {task_type}")
+        return False
 
     all_success = True
     
-    for task in tasks:
-        temp_path = os.path.join(temp_dir, task['temp_name'])
+    # 3. Execution Block
+    if task_dict is not None:
+        temp_path = os.path.join(temp_dir, task_dict['temp_name'])
         download_ok = False
         
         for attempt in range(3):
             try:
-                client.retrieve({"date": date_str, "time": cycle, "target": temp_path, **task['params']})
+                client.retrieve({"date": date_str, "time": cycle, "target": temp_path, **task_dict['params']})
                 if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024:
                     download_ok = True
                     break
@@ -363,40 +384,29 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
                     except: pass
         
         if not download_ok:
-            logger.error(f"❌ Final failure after 3 attempts: {task['temp_name']}")
-            all_success = False
-            continue
+            logger.error(f"❌ Final failure after 3 attempts: {task_dict['temp_name']}")
+            return False
 
         try:
             ds = xr.open_dataset(temp_path, engine='cfgrib', backend_kwargs={'indexpath': ''})
             ds_nh = crop_to_nh_safe(ds)
             
             if ds_nh is not None:
-                # ---------------------------------------------------------
-                # PATH C: NATIVE DELTA LAKE TRANSACTION (ECMWF)
-                # ---------------------------------------------------------
-                logger.info(f"Flattening {task['name']} grid to Pandas DataFrame...")
+                logger.info(f"Flattening {task_dict['name']} grid to Pandas DataFrame...")
                 df = ds_nh.to_dataframe().reset_index()
 
-                # Clean NaNs dynamically based on likely variable names
                 target_var = 'z' if 'z' in df.columns else ('msl' if 'msl' in df.columns else None)
                 if target_var and target_var in df.columns:
                     df = df.dropna(subset=[target_var])
                 
                 df.columns = [str(c) for c in df.columns]
-                # ---------------------------------------------------------
-                # NEW: Delta Lake Schema Sanitization
+                
                 # Convert timedelta/Duration columns (like 'step') into Float Hours
-                # ---------------------------------------------------------
                 for col in df.select_dtypes(include=['timedelta64[ns]', 'timedelta64']).columns:
                     df[col] = df[col].dt.total_seconds() / 3600.0
                 
-                # Dynamically construct the Delta table root based on task name
-                # ---------------------------------------------------------
-                # ✅ SENIOR FIX: Aligned with Airflow Dataset 'ecmwf_raw'
-                # Appends task['name'] to isolate schemas (e.g., /ecmwf_raw/at_ifs_upper/)
-                # ---------------------------------------------------------
-                delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task['name']}/"
+                # Write directly to the granular asset path matching Airflow logic
+                delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task_dict['name']}/"
                 logger.info(f"Writing ACID transaction to Delta Table: {delta_table_s3_path}")
 
                 storage_options = {
@@ -409,27 +419,27 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
                     delta_table_s3_path,
                     df,
                     mode="append",
-                    storage_options=storage_options #,
-                    # engine="rust"
+                    storage_options=storage_options
                 )
 
-                logger.info(f"✅ [ECMWF-DELTA] Transaction committed for {task['name']}.")
+                logger.info(f"✅ [ECMWF-DELTA] Transaction committed for {task_dict['name']}.")
                 
                 ds.close()
                 ds_nh.close()
                 os.remove(temp_path)
             else:
-                logger.error(f"❌ Crop failed (Empty result): {task['temp_name']}")
+                logger.error(f"❌ Crop failed (Empty result): {task_dict['temp_name']}")
                 all_success = False
                 ds.close()
                 
         except Exception as e:
-            logger.warning(f"⚠️ ECMWF ETL Error for {task['name']}: {e}")
+            logger.warning(f"⚠️ ECMWF ETL Error for {task_dict['name']}: {e}")
             all_success = False
             if os.path.exists(temp_path): 
                 try: os.remove(temp_path)
                 except: pass
     
+    # Final Cleanup
     try:
         for f in os.listdir(temp_dir):
             if f.startswith("TEMP_GLOBAL"): os.remove(os.path.join(temp_dir, f))
@@ -437,7 +447,10 @@ def download_ecmwf_unified(date_obj, cycle, step, target_models=['AIFS', 'IFS'],
             
     return all_success
 
-# ================= Processing Functions (Unchanged, kept for downstream local compute) =================
+# ==============================================================================
+# DOWNSTREAM PROCESSING FUNCTIONS (Local Compute Analytics)
+# ==============================================================================
+
 def process_z500(ds, tag="Z500"):
     if ds is None: return None
     logger.info(f"[PROCESS][{tag}] Start processing...")
@@ -493,5 +506,4 @@ def force_2d(da):
     except: return da
 
 def load_data(file_path):
-    # Kept intact to preserve your local NetCDF workflow if you need to bypass Delta/S3 later
     pass
