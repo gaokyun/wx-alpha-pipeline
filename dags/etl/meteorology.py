@@ -7,6 +7,7 @@ import numpy as np
 import cfgrib
 import pendulum
 import boto3
+import docker
 from botocore.exceptions import ClientError
 from ecmwf.opendata import Client
 from deltalake.writer import write_deltalake
@@ -30,13 +31,6 @@ class Config:
         'left': -180.0,
         'right': 180.0
     }
-    
-    # Exact Release Timelines (Buffer Hours)
-    SCHEDULES = {
-        'aifs-upper': 6.93, 'aifs-surface': 6.93, 'aifs-spread': 7.57,
-        'ifs-upper': 7.57, 'ifs-surface': 6.93, 'ifs-spread': 7.67, 
-        'gfs-upper': 4.67
-    }
 
 weather_config = Config()
 
@@ -59,59 +53,6 @@ METEO_REGISTRY = {
 # ==============================================================================
 # UTILITY FUNCTIONS
 # ==============================================================================
-def upload_to_s3_and_cleanup(local_file_path, s3_prefix):
-    """
-    Physical Delivery: Pushes the local NetCDF file to S3 dynamically and destroys the local copy.
-    (Note: Kept for legacy fallback, but bypassed by Delta Lake logic)
-    """
-    s3_client = boto3.client('s3',
-                             aws_access_key_id=weather_config.AWS_ACC_KEY,
-                             aws_secret_access_key=weather_config.AWS_SECRET_KEY,
-                             region_name=weather_config.AWS_REGION)
-    
-    file_name = os.path.basename(local_file_path)
-    target_bucket = weather_config.S3_BUCKET
-
-    if not target_bucket:
-        logger.error("🛑 CRITICAL: AWS_S3_BUCKET environment variable is missing!")
-        return False
-
-    s3_key = f"{s3_prefix}/{file_name}"
-    
-    try:
-        s3_client.upload_file(local_file_path, target_bucket, s3_key)
-        logger.info(f"✅ S3 Upload Complete. Destroying local buffer: {local_file_path}")   
-        os.remove(local_file_path)
-        return True
-    except ClientError as e:
-        logger.error(f"❌ S3 Upload Failed: {e}")
-        return False
-        
-def is_future_model_run(date_obj, cycle, task_key="gfs-upper"):
-    """
-    Physical Boundary Check: Prevents the pipeline from hunting for 'Ghost Data'.
-    Safely integrates Pendulum for timezone-aware evaluation using precise buffer schedules.
-    """
-    # Prevent EPS spread from checking/failing on off-cycles (06z, 18z)
-    if cycle in [6, 18] and 'spread' in task_key:
-        return True
-        
-    try:
-        dt = pendulum.instance(date_obj) if not isinstance(date_obj, pendulum.DateTime) else date_obj
-        run_time = dt.at(cycle, 0, 0).set(tz="UTC")
-        current_utc = pendulum.now("UTC")
-        
-        # Dynamically pull the exact buffer hours for the specific model/task
-        buffer_hours = weather_config.SCHEDULES.get(task_key, 4.67) 
-        release_time = run_time.add(hours=buffer_hours)
-
-        if release_time > current_utc:
-            return True
-        return False
-    except Exception as e:
-        logger.error(f"Time validation error: {e}")
-        return False
-
 def crop_to_nh_safe(ds):
     """
     Northern Hemisphere Full Panorama Cropper
@@ -168,12 +109,9 @@ def _download_s3_range(url, ranges, target_path):
 
 def download_gfs_robust(date_obj, cycle, step):
     """GFS Downloader (GRIB2 -> Delta Lake)"""
-    task_key = "gfs-upper"
+    # Note: Temporal gating is now fully managed by Airflow Sensors.
+    # If this function is called, we assume NOMADS has the data.
     
-    if is_future_model_run(date_obj, cycle, task_key):
-        logger.warning(f"🛑 [GFS ETL blocked] Run {pendulum.instance(date_obj).format('YYYYMMDD')}_{cycle:02d}z is in the future. Aborting to prevent 404 loops.")
-        return False
-        
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}"
     
@@ -185,30 +123,32 @@ def download_gfs_robust(date_obj, cycle, step):
     download_success = False
 
     s3_base = f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{date_str}/{cycle_str}/atmos/gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}"
-    if not download_success:
-        try:
-            r_idx = requests.get(s3_base + ".idx", timeout=10)
-            if r_idx.status_code == 200:
-                lines = r_idx.text.splitlines()
-                
-                target_vars = [v["gfs"] for k, v in METEO_REGISTRY["upper"].items()] + \
-                              [v["gfs"] for k, v in METEO_REGISTRY["surface"].items()]
-                
-                ranges = []
-                for key in target_vars:
-                    for i, line in enumerate(lines):
-                        if key in line:
-                            parts = line.split(':')
-                            start = int(parts[1])
-                            end = int(lines[i+1].split(':')[1])-1 if i+1 < len(lines) else ""
-                            ranges.append((start, end))
-                            break
-                if len(ranges) == len(target_vars):
-                    if _download_s3_range(s3_base, ranges, temp_path):
-                        download_success = True
-        except Exception:
-            pass
+    
+    # 1. Try S3 Byte Range Extraction
+    try:
+        r_idx = requests.get(s3_base + ".idx", timeout=10)
+        if r_idx.status_code == 200:
+            lines = r_idx.text.splitlines()
+            
+            target_vars = [v["gfs"] for k, v in METEO_REGISTRY["upper"].items()] + \
+                          [v["gfs"] for k, v in METEO_REGISTRY["surface"].items()]
+            
+            ranges = []
+            for key in target_vars:
+                for i, line in enumerate(lines):
+                    if key in line:
+                        parts = line.split(':')
+                        start = int(parts[1])
+                        end = int(lines[i+1].split(':')[1])-1 if i+1 < len(lines) else ""
+                        ranges.append((start, end))
+                        break
+            if len(ranges) == len(target_vars):
+                if _download_s3_range(s3_base, ranges, temp_path):
+                    download_success = True
+    except Exception:
+        pass
 
+    # 2. Fallback to NOMADS Perl Filter
     if not download_success:
         nomads_url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
         params = {
@@ -232,6 +172,7 @@ def download_gfs_robust(date_obj, cycle, step):
         except Exception:
             pass
 
+    # 3. Transform & Load into Delta Lake
     if download_success and os.path.exists(temp_path):
         try:
             datasets = cfgrib.open_datasets(
@@ -275,6 +216,7 @@ def download_gfs_robust(date_obj, cycle, step):
                     delta_table_s3_path,
                     df,
                     mode="append",
+                    schema_mode="merge", # "overwrite", # Allows for minor schema evolution
                     storage_options=storage_options
                 )
 
@@ -298,13 +240,6 @@ def download_gfs_robust(date_obj, cycle, step):
 def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type='upper'): 
     """ECMWF Unified Downloader (GRIB2 -> Delta Lake)"""
     
-    # Standardize the task key for the schedule/future check
-    task_key = f"{target_model.lower()}-{task_type.lower()}"
-
-    if is_future_model_run(date_obj, cycle, task_key):
-        logger.warning(f"🛑 [ECMWF ETL blocked] Run {pendulum.instance(date_obj).format('YYYYMMDD')}_{cycle:02d}z is in the future. Aborting request.")
-        return False
-        
     client = Client("ecmwf", beta=False)
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}z"
@@ -419,6 +354,7 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
                     delta_table_s3_path,
                     df,
                     mode="append",
+                    schema_mode="merge", # "overwrite", # Allows for minor schema evolution
                     storage_options=storage_options
                 )
 
@@ -447,8 +383,9 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
             
     return all_success
 
+
 # ==============================================================================
-# DOWNSTREAM PROCESSING FUNCTIONS (Local Compute Analytics)
+# DOWNSTREAM PROCESSING FUNCTIONS (Local Compute Analytics / Legacy)
 # ==============================================================================
 
 def process_z500(ds, tag="Z500"):
@@ -508,8 +445,10 @@ def force_2d(da):
 def load_data(file_path):
     pass
 
-import docker
 
+# ==============================================================================
+# DBT ORCHESTRATION VIA DOCKER
+# ==============================================================================
 def run_dbt_command(command: str, select_path: str = None):
     """
     Standardized runner to execute dbt commands in the 'dbt-snowflake-runner' container.
@@ -535,4 +474,3 @@ def run_dbt_command(command: str, select_path: str = None):
             
     except docker.errors.NotFound:
         raise Exception("Container 'dbt-snowflake-runner' not found. Ensure it is part of your docker-compose.")
-    

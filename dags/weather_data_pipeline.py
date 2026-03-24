@@ -3,7 +3,7 @@ import requests
 import pendulum
 from bs4 import BeautifulSoup
 from airflow.sdk import dag, task, Asset
-from airflow.sensors.python import PythonSensor
+from airflow.providers.standard.sensors.python import PythonSensor
 from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 
 S3_BUCKET = os.getenv('AWS_S3_BUCKET', 'amzn-s3-ykg-storage')
@@ -50,6 +50,10 @@ def generate_cron(buffer_hours: float, model: str) -> str:
 
 def get_cycle_and_date(trigger_time: pendulum.DateTime, task_key: str):
     """Rewinds the buffer amount to snap back to the origin model cycle."""
+    # Safety fallback: If Airflow context injection fails, use 'now'
+    if trigger_time is None:
+        trigger_time = pendulum.now("UTC")
+        
     trigger_time_utc = trigger_time.in_tz('UTC')
     buffer_hours = SCHEDULES.get(task_key, 4.67)
     nominal_time = trigger_time_utc.subtract(minutes=int(buffer_hours * 60))
@@ -183,7 +187,7 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
                 table_name = f"{mod}_{ttyp}"
                 # Handle edge case where mapping needs 'at_' prefix for ECMWF
                 if mod != 'gfs' and ttyp != 'spread':
-                    table_name = f"at_{table_name}"
+                    table_name = f"{table_name}"
                     
                 sql = f"ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.{table_name} REFRESH;"
                 print(f"⚡ 12z REAL-TIME MODE: Syncing {table_name} immediately.")
