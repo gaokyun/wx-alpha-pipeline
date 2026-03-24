@@ -23,23 +23,25 @@ clean-targets:         # directories to be removed by `dbt clean`
 models:
   physical_meteor: # This must match your project name above
     
-    # 1. GFS specific configuration
-    gfs:
-      +tags: ["gfs", "meteorology"]
-      staging:
-        +materialized: view      # Staging should always be views to save space
-      marts:
-        +materialized: table     # Marts should be tables for fast BI querying
+    # ---------------------------------------------------------
+    # 1. SILVER LAYER (Staging: Light cleaning, renaming, casting)
+    # ---------------------------------------------------------
+    staging:
+      +materialized: view      # Staging should always be views to save space
+      +schema: silver          # Puts these in PHYSICAL_METEOR_DB.SILVER
+      
+      gfs:
+        +tags: ["gfs", "meteorology", "staging"]
         
-    # 2. ECMWF specific configuration
-    ecmwf:
-      +tags: ["ecmwf", "meteorology"]
-      staging:
-        +materialized: view
-      marts:
-        +materialized: table
+      ecmwf:
+        +tags: ["ecmwf", "meteorology", "staging"]
 
-    # 3. Combined/Consensus Configuration
-    combined:
-      +tags: ["consensus", "daily_batch"]
-      +materialized: incremental # Incremental is best for large history tables
+    # ---------------------------------------------------------
+    # 2. GOLD LAYER (Marts: Heavy joins, business logic, consensus)
+    # ---------------------------------------------------------
+    marts:
+      +materialized: table     # Marts should be tables for fast BI querying
+      +schema: gold            # Puts these in PHYSICAL_METEOR_DB.GOLD
+      
+      weather:                 # Replaces 'combined' for better domain naming
+        +tags: ["consensus", "daily_batch"]

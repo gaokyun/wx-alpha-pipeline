@@ -507,3 +507,32 @@ def force_2d(da):
 
 def load_data(file_path):
     pass
+
+import docker
+
+def run_dbt_command(command: str, select_path: str = None):
+    """
+    Standardized runner to execute dbt commands in the 'dbt-snowflake-runner' container.
+    """
+    client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+    try:
+        container = client.containers.get('dbt-snowflake-runner')
+        
+        full_cmd = f"dbt {command} --profiles-dir . --target prod"
+        if select_path:
+            full_cmd += f" --select {select_path}"
+            
+        print(f"Executing: {full_cmd}")
+        
+        exit_code, output = container.exec_run(
+            cmd=f'bash -c "{full_cmd}"',
+            workdir='/usr/app/physical_meteor'
+        )
+        
+        print(output.decode('utf-8'))
+        if exit_code != 0:
+            raise Exception(f"dbt command failed: {full_cmd}")
+            
+    except docker.errors.NotFound:
+        raise Exception("Container 'dbt-snowflake-runner' not found. Ensure it is part of your docker-compose.")
+    

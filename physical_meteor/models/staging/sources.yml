@@ -1,0 +1,63 @@
+version: 2
+
+sources:
+  - name: ecmwf_raw
+    database: PHYSICAL_METEOR_DB
+    schema: RAW
+    tables:
+      - name: aifs_upper
+        description: "Raw AIFS Upper air data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/ecmwf_raw/at_aifs_upper/"
+          file_format: "( type = parquet )"
+          table_format: delta
+          
+      # --- ADD THIS NEW BLOCK ---
+      - name: ifs_upper
+        description: "Raw traditional IFS Upper air data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/ecmwf_raw/at_ifs_upper/"
+          file_format: "( type = parquet )"
+          table_format: delta         
+
+      - name: aifs_surface
+        description: "Raw AIFS Surface data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/ecmwf_raw/at_aifs_surface/"
+          file_format: "( type = parquet )"
+          table_format: delta
+          
+      # --- ADD THIS NEW BLOCK ---
+      - name: ifs_surface
+        description: "Raw traditional IFS Surface data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/ecmwf_raw/at_ifs_surface/"
+          file_format: "( type = parquet )"
+          table_format: delta         
+
+      - name: aifs_spread
+        description: "Raw AIFS Spread data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/ecmwf_raw/at_aifs_spread/"
+          file_format: "( type = parquet )"
+          table_format: delta 
+          
+      # --- ADD THIS NEW BLOCK ---
+      - name: ifs_spread
+        description: "Raw traditional IFS Spread data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/ecmwf_raw/at_ifs_spread/"
+          file_format: "( type = parquet )"
+          table_format: delta  
+
+  - name: gfs_raw
+    database: PHYSICAL_METEOR_DB
+    schema: RAW
+    tables:
+      - name: gfs_upper
+        description: "Raw GFS Upper air data sitting in S3"
+        external:
+          location: "@PHYSICAL_METEOR_DB.RAW.delta_lake_s3_stage/gfs_raw/"
+          file_format: "( type = parquet )"
+          table_format: delta
+                
