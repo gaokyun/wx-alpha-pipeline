@@ -8,8 +8,10 @@ import cfgrib
 import pendulum
 import boto3
 import docker
+import pyarrow as pa
 from botocore.exceptions import ClientError
 from ecmwf.opendata import Client
+from deltalake import DeltaTable
 from deltalake.writer import write_deltalake
 
 # Configure logger
@@ -102,6 +104,43 @@ def _download_s3_range(url, ranges, target_path):
         logger.warning(f"S3 Range Download Failed: {e}")
         return False
 
+def upsert_weather_data(df, delta_table_s3_path, storage_options):
+    """
+    Idempotent write operation for weather data. 
+    Prevents duplicates during Airflow retries or backfills.
+    """
+    pa_table = pa.Table.from_pandas(df)
+    
+    try:
+        dt = DeltaTable(delta_table_s3_path, storage_options=storage_options)
+        
+        (
+            dt.merge(
+                source=pa_table,
+                predicate="s.time = t.time AND s.step = t.step AND s.latitude = t.latitude AND s.longitude = t.longitude",
+                source_alias="s",
+                target_alias="t"
+            )
+            .when_not_matched_insert_all() 
+            .when_matched_update_all()     
+            .execute()
+        )
+        logger.info(f"✅ Idempotent Upsert successful for {delta_table_s3_path}")
+        
+    except Exception as e:
+        if "not a delta table" in str(e).lower() or "not found" in str(e).lower() or "no table found" in str(e).lower():
+            logger.warning(f"⚠️ Delta table not found at {delta_table_s3_path}. Initializing new table...")
+            write_deltalake(
+                delta_table_s3_path, 
+                df, 
+                mode="append", 
+                schema_mode="merge",
+                storage_options=storage_options
+            )
+        else:
+            logger.error(f"❌ Upsert failed for {delta_table_s3_path}: {e}")
+            raise e
+
 
 # ==============================================================================
 # DATA EXTRACTORS
@@ -109,8 +148,6 @@ def _download_s3_range(url, ranges, target_path):
 
 def download_gfs_robust(date_obj, cycle, step):
     """GFS Downloader (GRIB2 -> Delta Lake)"""
-    # Note: Temporal gating is now fully managed by Airflow Sensors.
-    # If this function is called, we assume NOMADS has the data.
     
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}"
@@ -204,7 +241,6 @@ def download_gfs_robust(date_obj, cycle, step):
                     df[col] = df[col].dt.total_seconds() / 3600.0
 
                 delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/gfs_raw/"
-                logger.info(f"Writing ACID transaction to Delta Table: {delta_table_s3_path}")
                 
                 storage_options = {
                     "AWS_ACCESS_KEY_ID": weather_config.AWS_ACC_KEY,
@@ -212,15 +248,8 @@ def download_gfs_robust(date_obj, cycle, step):
                     "AWS_REGION": weather_config.AWS_REGION
                 }
                 
-                write_deltalake(
-                    delta_table_s3_path,
-                    df,
-                    mode="append",
-                    schema_mode="merge", # "overwrite", # Allows for minor schema evolution
-                    storage_options=storage_options
-                )
-
-                logger.info("✅ [GFS-DELTA] Transaction committed successfully.")
+                # Execute Idempotent Upsert
+                upsert_weather_data(df, delta_table_s3_path, storage_options)
                 
                 ds.close()
                 ds_nh.close()
@@ -340,25 +369,16 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
                 for col in df.select_dtypes(include=['timedelta64[ns]', 'timedelta64']).columns:
                     df[col] = df[col].dt.total_seconds() / 3600.0
                 
-                # Write directly to the granular asset path matching Airflow logic
                 delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task_dict['name']}/"
-                logger.info(f"Writing ACID transaction to Delta Table: {delta_table_s3_path}")
-
+                
                 storage_options = {
                     "AWS_ACCESS_KEY_ID": weather_config.AWS_ACC_KEY,
                     "AWS_SECRET_ACCESS_KEY": weather_config.AWS_SECRET_KEY,
                     "AWS_REGION": weather_config.AWS_REGION
                 }
                 
-                write_deltalake(
-                    delta_table_s3_path,
-                    df,
-                    mode="append",
-                    schema_mode="merge", # "overwrite", # Allows for minor schema evolution
-                    storage_options=storage_options
-                )
-
-                logger.info(f"✅ [ECMWF-DELTA] Transaction committed for {task_dict['name']}.")
+                # Execute Idempotent Upsert
+                upsert_weather_data(df, delta_table_s3_path, storage_options)
                 
                 ds.close()
                 ds_nh.close()
