@@ -240,8 +240,8 @@ def transform_gfs_snowflake():
 @dag(
     dag_id='weather_ops.transform.ecmwf_dbt_snowflake',
     default_args=default_args,
-    # Trigger ONLY on aifs-upper to prevent hanging during 06z/18z runs when IFS skips
-    schedule=[ASSETS['aifs-upper']], 
+    # FIX: Require both essential datasets to finish before triggering DBT
+    schedule=[ASSETS['aifs-upper'], ASSETS['aifs-surface']], 
     start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
     catchup=False,
     tags=['dbt', 'snowflake', 'ecmwf']
@@ -250,6 +250,44 @@ def transform_ecmwf_snowflake():
 
     @task(task_id='cost_optimized_batch_refresh_ecmwf')
     def batch_refresh_metadata(data_interval_end: pendulum.DateTime = None):
+        target_date, cycle = get_cycle_and_date(data_interval_end, 'aifs-upper')
+        
+        if cycle != 12:
+            hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
+            sql_commands = [
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.AIFS_UPPER REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.AIFS_SURFACE REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.AIFS_SPREAD REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.IFS_UPPER REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.IFS_SURFACE REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.IFS_SPREAD REFRESH;"
+            ]
+            print(f"💰 {cycle}z BATCH MODE: Executing bulk ECMWF refresh.")
+            hook.run(sql_commands) 
+            # Note: The duplicate sql = """...""" block is completely removed.
+        else:
+            print(f"⚡ 12z REAL-TIME MODE: ECMWF tables already refreshed. Skipping bulk.")
+
+        target_date, cycle = get_cycle_and_date(data_interval_end, 'aifs-upper')
+        
+        # COST PATH: Execute bulk refresh
+        if cycle != 12:
+            hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
+            
+            # 🛠️ FIX: Pass as a list of independent commands to satisfy the Snowflake Connector
+            sql_commands = [
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_upper REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_surface REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_spread REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.ifs_upper REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.ifs_surface REFRESH;",
+                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.ifs_spread REFRESH;"
+            ]
+            print(f"💰 {cycle}z BATCH MODE: Executing bulk ECMWF refresh.")
+            hook.run(sql_commands) 
+        else:
+            print(f"⚡ 12z REAL-TIME MODE: ECMWF tables already refreshed. Skipping bulk.")
+
         target_date, cycle = get_cycle_and_date(data_interval_end, 'aifs-upper')
         
         # COST PATH: Execute bulk refresh

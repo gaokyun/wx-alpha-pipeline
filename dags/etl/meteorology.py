@@ -6,10 +6,10 @@ import xarray as xr
 import numpy as np
 import cfgrib
 import pendulum
-import boto3
 import docker
 import pyarrow as pa
-from botocore.exceptions import ClientError
+import pyarrow.compute as pc
+import pandas as pd
 from ecmwf.opendata import Client
 from deltalake import DeltaTable
 from deltalake.writer import write_deltalake
@@ -58,16 +58,18 @@ METEO_REGISTRY = {
 def crop_to_nh_safe(ds):
     """
     Northern Hemisphere Full Panorama Cropper
+    Safely handles both ascending and descending latitudes to save compute.
     """
     try:
         if 'longitude' in ds.coords:
             ds.coords['longitude'] = (ds.coords['longitude'] + 180) % 360 - 180
             ds = ds.sortby('longitude')
-        
-        ds = ds.sortby('latitude')
 
         if 'latitude' in ds.coords:
-            ds_nh = ds.sel(latitude=slice(-10, 90))
+            # Prevent unnecessary sorting if already ascending, handle descending gracefully
+            if float(ds.latitude[0]) > float(ds.latitude[-1]):
+                ds = ds.sortby('latitude')
+            ds_nh = ds.sel(latitude=slice(0, 90))
         else:
             logger.warning("Warning: No 'latitude' coord found, returning full ds.")
             return ds
@@ -104,20 +106,61 @@ def _download_s3_range(url, ranges, target_path):
         logger.warning(f"S3 Range Download Failed: {e}")
         return False
 
-def upsert_weather_data(df, delta_table_s3_path, storage_options):
+def xarray_to_arrow(ds, target_var):
     """
-    Idempotent write operation for weather data. 
-    Prevents duplicates during Airflow retries or backfills.
+    Bypasses Pandas entirely to prevent MultiIndex memory inflation. 
+    Flattens an xarray Dataset directly into a PyArrow Table.
     """
-    pa_table = pa.Table.from_pandas(df)
+    # Force all variables to broadcast to the full grid to ensure equal array lengths
+    ds_expanded = xr.broadcast(ds)[0]
+    
+    data_dict = {}
+    
+    for coord_name, coord_var in ds_expanded.coords.items():
+        data_dict[str(coord_name)] = coord_var.values.ravel()
+        
+    for var_name, data_var in ds_expanded.data_vars.items():
+        data_dict[str(var_name)] = data_var.values.ravel()
+        
+    table = pa.Table.from_pydict(data_dict)
+    
+    # Filter out NaNs utilizing optimized Arrow compute
+    if target_var and target_var in table.column_names:
+        is_not_null = pc.is_valid(table[target_var])
+        table = table.filter(is_not_null)
+        
+    return table
+
+def upsert_weather_data(pa_table, delta_table_s3_path, storage_options):
+    """
+    Idempotent Delta Lake merge accepting a pure PyArrow Table.
+    Ensures partition schema is respected on both creation and merge.
+    """
+    col_names = pa_table.column_names
+
+    # Dynamic Primary Key Construction
+    pk_cols = ['forecast_reference_time', 'valid_time', 'latitude', 'longitude']
+    if 'isobaricInhPa' in col_names:
+        pk_cols.append('isobaricInhPa')
+    elif 'level' in col_names:
+        pk_cols.append('level')
+        
+    predicate = " AND ".join([f"s.{col} = t.{col}" for col in pk_cols])
+    
+    # Dual-partitioning strategy for maximum query performance
+    partition_cols = ["forecast_reference_time", "forecast_cycle"]
     
     try:
         dt = DeltaTable(delta_table_s3_path, storage_options=storage_options)
         
+        # Partitioning Safeguard
+        if not dt.metadata().partition_columns:
+             raise RuntimeError(f"Delta table at {delta_table_s3_path} lacks partitioning. Manual wipe required.")
+        
         (
             dt.merge(
                 source=pa_table,
-                predicate="s.time = t.time AND s.step = t.step AND s.latitude = t.latitude AND s.longitude = t.longitude",
+                predicate=predicate,
                 source_alias="s",
                 target_alias="t"
             )
@@ -125,16 +168,18 @@ def upsert_weather_data(df, delta_table_s3_path, storage_options):
             .when_matched_update_all()     
             .execute()
         )
-        logger.info(f"✅ Idempotent Upsert successful for {delta_table_s3_path}")
+        logger.info(f"✅ Arrow-Native Upsert successful via keys: {pk_cols}")
         
     except Exception as e:
-        if "not a delta table" in str(e).lower() or "not found" in str(e).lower() or "no table found" in str(e).lower():
-            logger.warning(f"⚠️ Delta table not found at {delta_table_s3_path}. Initializing new table...")
+        error_str = str(e).lower()
+        if any(k in error_str for k in ["not a delta table", "not found", "no table found", "no files in log segment"]):
+            logger.warning(f"⚠️ Delta table not initialized at {delta_table_s3_path}. Creating new partitioned table...")
             write_deltalake(
                 delta_table_s3_path, 
-                df, 
+                pa_table, 
                 mode="append", 
                 schema_mode="merge",
+                partition_by=partition_cols,
                 storage_options=storage_options
             )
         else:
@@ -146,8 +191,45 @@ def upsert_weather_data(df, delta_table_s3_path, storage_options):
 # DATA EXTRACTORS
 # ==============================================================================
 
+def _apply_xarray_canonicalization(ds_nh):
+    """Applies temporal and spatial normalization natively to Xarray coordinates."""
+    logger.info("Executing Xarray-Native Canonicalization...")
+    
+    # 1. Spatial Canonicalization (on 1D axes = blazing fast)
+    if 'longitude' in ds_nh.coords:
+        ds_nh['longitude'] = np.round(((ds_nh['longitude'] + 180) % 360) - 180, 4).astype(np.float32)
+    if 'latitude' in ds_nh.coords:
+        ds_nh['latitude'] = np.round(ds_nh['latitude'], 4).astype(np.float32)
+
+    # 2. Temporal Canonicalization 
+    if 'step' in ds_nh.coords or 'step' in ds_nh.data_vars:
+        if 'time' in ds_nh.coords:
+            ds_nh = ds_nh.rename({'time': 'forecast_reference_time'})
+        
+        # Convert step to timedelta64 natively if it isn't already
+        if not np.issubdtype(ds_nh['step'].dtype, np.timedelta64):
+            ds_nh['step'] = ds_nh['step'].astype('timedelta64[h]')
+            
+        # Vectorized Numpy datetime math
+        ds_nh.coords['valid_time'] = ds_nh.coords['forecast_reference_time'] + ds_nh.coords['step']
+    
+    elif 'time' in ds_nh.coords:
+        ds_nh = ds_nh.rename({'time': 'valid_time'})
+        ds_nh.coords['forecast_reference_time'] = ds_nh.coords['valid_time']
+
+    # 3. Add Partition Columns
+    hours = ds_nh.coords['forecast_reference_time'].dt.hour
+    ds_nh.coords['forecast_cycle'] = hours.astype(np.int32)
+    
+    # Format specific step tracking for timedelta (Float hours)
+    if 'step' in ds_nh.coords:
+        ds_nh['step'] = ds_nh['step'].astype('timedelta64[s]').astype(np.float32) / 3600.0
+        
+    return ds_nh
+
+
 def download_gfs_robust(date_obj, cycle, step):
-    """GFS Downloader (GRIB2 -> Delta Lake)"""
+    """GFS Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake)"""
     
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}"
@@ -158,7 +240,6 @@ def download_gfs_robust(date_obj, cycle, step):
     temp_path = os.path.join(temp_dir, temp_filename)
 
     download_success = False
-
     s3_base = f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{date_str}/{cycle_str}/atmos/gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}"
     
     # 1. Try S3 Byte Range Extraction
@@ -166,20 +247,22 @@ def download_gfs_robust(date_obj, cycle, step):
         r_idx = requests.get(s3_base + ".idx", timeout=10)
         if r_idx.status_code == 200:
             lines = r_idx.text.splitlines()
-            
             target_vars = [v["gfs"] for k, v in METEO_REGISTRY["upper"].items()] + \
                           [v["gfs"] for k, v in METEO_REGISTRY["surface"].items()]
+            
+            fcst_marker = f"{int(step)} hour fcst" if step > 0 else "anl"
             
             ranges = []
             for key in target_vars:
                 for i, line in enumerate(lines):
-                    if key in line:
+                    if key in line and fcst_marker in line:
                         parts = line.split(':')
                         start = int(parts[1])
                         end = int(lines[i+1].split(':')[1])-1 if i+1 < len(lines) else ""
                         ranges.append((start, end))
-                        break
-            if len(ranges) == len(target_vars):
+                        continue  # Keep scanning for duplicate variable entries
+                        
+            if len(ranges) >= len(target_vars): 
                 if _download_s3_range(s3_base, ranges, temp_path):
                     download_success = True
     except Exception:
@@ -188,11 +271,9 @@ def download_gfs_robust(date_obj, cycle, step):
     # 2. Fallback to NOMADS Perl Filter
     if not download_success:
         nomads_url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
+        
         params = {
             'file': f'gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}',
-            'lev_850_mb': 'on', 'var_TMP': 'on', 
-            'lev_500_mb': 'on', 'var_HGT': 'on',
-            'var_ABSV': 'on',
             'subregion': 'on',
             'toplat': weather_config.REGION_US['top'],
             'bottomlat': weather_config.REGION_US['bottom'],
@@ -200,6 +281,22 @@ def download_gfs_robust(date_obj, cycle, step):
             'rightlon': weather_config.REGION_US['right'],
             'dir': f'/gfs.{date_str}/{cycle_str}/atmos'
         }
+        
+        for level_type, vars_dict in METEO_REGISTRY.items():
+            for var_key, var_info in vars_dict.items():
+                gfs_str = var_info['gfs'] 
+                parts = [p for p in gfs_str.split(':') if p]
+                if len(parts) >= 2:
+                    var_name = parts[0]
+                    level_name = parts[1].replace(' ', '_')
+                    
+                    params[f'var_{var_name}'] = 'on'
+                    if 'surface' in level_name.lower() or 'mean_sea_level' in level_name.lower() or 'above_ground' in level_name.lower():
+                        params['lev_surface'] = 'on'
+                        params[f'lev_{level_name}'] = 'on' 
+                    else:
+                        params[f'lev_{level_name}'] = 'on'
+
         try:
             r = requests.get(nomads_url, params=params, timeout=60)
             if r.status_code == 200:
@@ -211,6 +308,7 @@ def download_gfs_robust(date_obj, cycle, step):
 
     # 3. Transform & Load into Delta Lake
     if download_success and os.path.exists(temp_path):
+        ds, ds_nh = None, None
         try:
             datasets = cfgrib.open_datasets(
                 temp_path, 
@@ -228,17 +326,14 @@ def download_gfs_robust(date_obj, cycle, step):
             ds_nh = crop_to_nh_safe(ds)
             
             if ds_nh is not None:
-                logger.info("Flattening GFS grid to Pandas DataFrame...")
-                df = ds_nh.to_dataframe().reset_index()
+                # Execute native normalization
+                ds_nh = _apply_xarray_canonicalization(ds_nh)
+                
+                # Identify the target variable for NaN dropping
+                target_var = 'gh' if 'gh' in ds_nh.data_vars else ('z' if 'z' in ds_nh.data_vars else None)
 
-                target_var = 'gh' if 'gh' in df.columns else ('z' if 'z' in df.columns else None)
-                if target_var:
-                    df = df.dropna(subset=[target_var])
-                
-                df.columns = [str(c) for c in df.columns]
-                
-                for col in df.select_dtypes(include=['timedelta64[ns]', 'timedelta64']).columns:
-                    df[col] = df[col].dt.total_seconds() / 3600.0
+                logger.info("Flattening directly to PyArrow Table...")
+                pa_table = xarray_to_arrow(ds_nh, target_var)
 
                 delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/gfs_raw/"
                 
@@ -248,38 +343,36 @@ def download_gfs_robust(date_obj, cycle, step):
                     "AWS_REGION": weather_config.AWS_REGION
                 }
                 
-                # Execute Idempotent Upsert
-                upsert_weather_data(df, delta_table_s3_path, storage_options)
-                
-                ds.close()
-                ds_nh.close()
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                upsert_weather_data(pa_table, delta_table_s3_path, storage_options)
                 return True
-            else:
-                ds.close()
-                return False
+                
         except Exception as e:
             logger.error(f"❌ [GFS ETL Error] {e}")
-            if os.path.exists(temp_path): os.remove(temp_path)
             return False
+            
+        finally:
+            if ds is not None: ds.close()
+            if ds_nh is not None: ds_nh.close()
+            if os.path.exists(temp_path):
+                try: os.remove(temp_path)
+                except OSError: pass
+                
     return False
 
 
 def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type='upper'): 
-    """ECMWF Unified Downloader (GRIB2 -> Delta Lake)"""
+    """ECMWF Unified Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake)"""
     
     client = Client("ecmwf", beta=False)
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}z"
     
-    temp_dir = os.path.join("/opt/airflow", "Data", "Temp_Global_Buffer")
+    temp_dir = os.path.join(weather_config.BASE_DIR, "Data", "Temp_Global_Buffer")
     os.makedirs(temp_dir, exist_ok=True)
     
     model_type = target_model.upper()
     task_dict = None
 
-    # 1. Base parameters setup
     if model_type == 'AIFS':
         common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
         file_prefix = "at_aifs"
@@ -290,7 +383,6 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
         logger.error(f"❌ Unknown target_model: {target_model}")
         return False
 
-    # 2. Specific Task Dictionary Construction
     if task_type == 'spread':
         if model_type == 'AIFS':
             task_dict = {
@@ -329,7 +421,6 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
 
     all_success = True
     
-    # 3. Execution Block
     if task_dict is not None:
         temp_path = os.path.join(temp_dir, task_dict['temp_name'])
         download_ok = False
@@ -351,23 +442,19 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
             logger.error(f"❌ Final failure after 3 attempts: {task_dict['temp_name']}")
             return False
 
+        ds, ds_nh = None, None
         try:
             ds = xr.open_dataset(temp_path, engine='cfgrib', backend_kwargs={'indexpath': ''})
             ds_nh = crop_to_nh_safe(ds)
             
             if ds_nh is not None:
-                logger.info(f"Flattening {task_dict['name']} grid to Pandas DataFrame...")
-                df = ds_nh.to_dataframe().reset_index()
+                # Execute native normalization
+                ds_nh = _apply_xarray_canonicalization(ds_nh)
+                
+                target_var = 'z' if 'z' in ds_nh.data_vars else ('msl' if 'msl' in ds_nh.data_vars else None)
 
-                target_var = 'z' if 'z' in df.columns else ('msl' if 'msl' in df.columns else None)
-                if target_var and target_var in df.columns:
-                    df = df.dropna(subset=[target_var])
-                
-                df.columns = [str(c) for c in df.columns]
-                
-                # Convert timedelta/Duration columns (like 'step') into Float Hours
-                for col in df.select_dtypes(include=['timedelta64[ns]', 'timedelta64']).columns:
-                    df[col] = df[col].dt.total_seconds() / 3600.0
+                logger.info("Flattening directly to PyArrow Table...")
+                pa_table = xarray_to_arrow(ds_nh, target_var)
                 
                 delta_table_s3_path = f"s3://{weather_config.S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task_dict['name']}/"
                 
@@ -377,29 +464,22 @@ def download_ecmwf_unified(date_obj, cycle, step, target_model='aifs', task_type
                     "AWS_REGION": weather_config.AWS_REGION
                 }
                 
-                # Execute Idempotent Upsert
-                upsert_weather_data(df, delta_table_s3_path, storage_options)
+                upsert_weather_data(pa_table, delta_table_s3_path, storage_options)
                 
-                ds.close()
-                ds_nh.close()
-                os.remove(temp_path)
             else:
                 logger.error(f"❌ Crop failed (Empty result): {task_dict['temp_name']}")
                 all_success = False
-                ds.close()
                 
         except Exception as e:
             logger.warning(f"⚠️ ECMWF ETL Error for {task_dict['name']}: {e}")
             all_success = False
-            if os.path.exists(temp_path): 
+            
+        finally:
+            if ds is not None: ds.close()
+            if ds_nh is not None: ds_nh.close()
+            if os.path.exists(temp_path):
                 try: os.remove(temp_path)
-                except: pass
-    
-    # Final Cleanup
-    try:
-        for f in os.listdir(temp_dir):
-            if f.startswith("TEMP_GLOBAL"): os.remove(os.path.join(temp_dir, f))
-    except: pass
+                except OSError: pass
             
     return all_success
 
@@ -472,8 +552,9 @@ def load_data(file_path):
 def run_dbt_command(command: str, select_path: str = None):
     """
     Standardized runner to execute dbt commands in the 'dbt-snowflake-runner' container.
+    Optimized to use environmental Docker daemon bindings.
     """
-    client = docker.DockerClient(base_url='unix://var/run/docker.sock')
+    client = docker.from_env()
     try:
         container = client.containers.get('dbt-snowflake-runner')
         
@@ -483,12 +564,17 @@ def run_dbt_command(command: str, select_path: str = None):
             
         print(f"Executing: {full_cmd}")
         
-        exit_code, output = container.exec_run(
+        exit_code, (stdout, stderr) = container.exec_run(
             cmd=f'bash -c "{full_cmd}"',
-            workdir='/usr/app/physical_meteor'
+            workdir='/usr/app/physical_meteor',
+            demux=True
         )
         
-        print(output.decode('utf-8'))
+        if stdout:
+            print(stdout.decode('utf-8'))
+        if stderr:
+            print(f"STDERR: {stderr.decode('utf-8')}")
+            
         if exit_code != 0:
             raise Exception(f"dbt command failed: {full_cmd}")
             
