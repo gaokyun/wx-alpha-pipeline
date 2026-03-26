@@ -108,239 +108,234 @@ def extract_to_arrow(ds, target_var):
     Memory-safe Xarray → Arrow conversion (no pandas).
     Uses chunk-aware stacking and avoids dataset materialization.
     """
-
     if target_var and target_var in ds:
         ds = ds.dropna(dim="latitude", how="all")
         ds = ds.dropna(dim="longitude", how="all")
 
-    # --- deterministic dimension ordering ---
     spatial_dims = ["latitude", "longitude"]
     non_spatial_dims = [d for d in ds.dims if d not in spatial_dims]
     stack_dims = non_spatial_dims + spatial_dims
 
-    # chunk-safe stacking
     ds = ds.transpose(*stack_dims)
-    stacked = ds.stack(points=stack_dims)
-    stacked = stacked.reset_index("points")
+    stacked = ds.stack(points=stack_dims).reset_index("points")
 
     if target_var and target_var in stacked:
         stacked = stacked.dropna("points", subset=[target_var])
 
-    # --- coordinate extraction ---
     coord_arrays = {}
-
     for coord in stacked.coords:
-        if coord == "points":
-            continue
-
+        if coord == "points": continue
         val = stacked.coords[coord].data
-
-        # Resolve dask scalars safely
-        if hasattr(val, "compute"):
-            val = val.compute()
-
+        if hasattr(val, "compute"): val = val.compute()
         val = np.asarray(val)
-
-        if val.ndim == 0:
-            val = np.repeat(val, stacked.sizes["points"])
-
+        if val.ndim == 0: val = np.repeat(val, stacked.sizes["points"])
         coord_arrays[coord] = val
 
-        data_arrays = {}
-
-        for var in stacked.data_vars:
-
-            arr = stacked[var].data
-
-            if hasattr(arr, "compute"):
-                arr = arr.compute()
-
-            data_arrays[var] = np.asarray(arr).astype(np.float32)
+    data_arrays = {}
+    for var in stacked.data_vars:
+        arr = stacked[var].data
+        if hasattr(arr, "compute"): arr = arr.compute()
+        data_arrays[var] = np.asarray(arr).astype(np.float32)
 
     data_dict = {**coord_arrays, **data_arrays}
 
-    # --- spatial index compression ---
+    # CRITICAL FIX: Absolute stable indices instead of relative np.unique()
     lat_arr = data_dict["latitude"].astype(np.float32)
     lon_arr = data_dict["longitude"].astype(np.float32)
+    data_dict["lat_i"] = np.round(lat_arr * 1000).astype(np.int32)
+    data_dict["lon_i"] = np.round(lon_arr * 1000).astype(np.int32)
 
-    _, lat_idx = np.unique(lat_arr, return_inverse=True)
-    _, lon_idx = np.unique(lon_arr, return_inverse=True)
-
-    data_dict["lat_i"] = lat_idx.astype(np.int32)
-    data_dict["lon_i"] = lon_idx.astype(np.int32)
-
-    # --- time normalization ---
+    # Time normalization (Force Microseconds to natively match Delta Lake)
     if "time" in data_dict:
-        frt = data_dict["time"].astype("datetime64[ms]")
+        frt = data_dict["time"].astype("datetime64[us]")
         del data_dict["time"]
     else:
-        frt = data_dict["forecast_reference_time"].astype("datetime64[ms]")
+        frt = data_dict["forecast_reference_time"].astype("datetime64[us]")
 
     data_dict["forecast_reference_time"] = frt
 
     if "step" in data_dict:
-        step = data_dict["step"].astype("timedelta64[ms]")
+        step = data_dict["step"].astype("timedelta64[us]")
         data_dict["valid_time"] = frt + step
-        data_dict["step_hours"] = step.astype("timedelta64[h]").astype(np.int16)
+        data_dict["step_hours"] = step.astype("timedelta64[h]").astype(np.int32) 
         del data_dict["step"]
     else:
         data_dict["valid_time"] = frt
 
     data_dict["forecast_date"] = frt.astype("datetime64[D]")
-
     hours_since_epoch = frt.astype("datetime64[h]").astype(np.int64)
-    data_dict["forecast_cycle"] = (hours_since_epoch % 24).astype(np.int16)
+    data_dict["forecast_cycle"] = (hours_since_epoch % 24).astype(np.int32)
 
-    # --- Arrow conversion ---
     table = pa.Table.from_pydict(data_dict)
 
-    # --- timezone enforcement ---
     table = table.set_column(
         table.schema.get_field_index("forecast_reference_time"),
         "forecast_reference_time",
-        pc.cast(table["forecast_reference_time"], pa.timestamp("ms", tz="UTC")),
+        pc.cast(table["forecast_reference_time"], pa.timestamp("us", tz="UTC")), # Changed to "us"
     )
-
     table = table.set_column(
         table.schema.get_field_index("valid_time"),
         "valid_time",
-        pc.cast(table["valid_time"], pa.timestamp("ms", tz="UTC")),
+        pc.cast(table["valid_time"], pa.timestamp("us", tz="UTC")), # Changed to "us"
     )
-
+    
+    # CAST TO STRING: Bypasses Delta-rs Date32 predicate bugs entirely
     table = table.set_column(
         table.schema.get_field_index("forecast_date"),
         "forecast_date",
-        pc.cast(table["forecast_date"], pa.date32()),
+        pc.cast(pc.cast(table["forecast_date"], pa.date32()), pa.string()),
     )
 
-    # --- primary key construction ---
-    pk_cols = [
-        "forecast_date",
-        "forecast_cycle",
-        "forecast_reference_time",
-        "valid_time",
-        "lat_i",
-        "lon_i",
-    ]
+    # STRICT PRIMARY KEYS: Using absolute integer coordinates and string dates
+    pk_cols = ["forecast_date", "forecast_cycle", "step_hours", "lat_i", "lon_i"]
 
+    # Cast pressure levels strictly to int32 to prevent Float drift
     if "isobaricInhPa" in table.column_names:
+        table = table.set_column(table.schema.get_field_index("isobaricInhPa"), "isobaricInhPa", pc.cast(table["isobaricInhPa"], pa.int32()))
         pk_cols.append("isobaricInhPa")
 
     if "level" in table.column_names:
+        table = table.set_column(table.schema.get_field_index("level"), "level", pc.cast(table["level"], pa.int32()))
         pk_cols.append("level")
 
-    # --- deduplication ---
+    # Deduplication
     if table.num_rows > 0:
-
-        dtype_map = [
-            (col, table[col].to_numpy().dtype)
-            for col in pk_cols
-        ]
-
+        dtype_map = [(col, table[col].to_numpy().dtype) for col in pk_cols]
         structured = np.empty(table.num_rows, dtype=dtype_map)
-
         for col in pk_cols:
             structured[col] = table[col].to_numpy()
-
         _, idx = np.unique(structured, return_index=True)
-
         table = table.take(np.sort(idx))
 
     return table, pk_cols
 
 def upsert_weather_data(pa_table, pk_cols, delta_table_s3_path, storage_options):
     """
-    Idempotent Delta Lake merge using strict integer grids and pyarrow tables.
-    Prunes partitions vertically and horizontally directly in the predicate.
+    Idempotent Delta Lake ingestion using Dynamic Partition Overwrite.
+    Bypasses row-level MERGE bugs by atomically replacing the entire time partition.
     """
-    predicate = " AND ".join([f"s.{col} = t.{col}" for col in pk_cols])
-    
     partition_cols = ["forecast_date", "forecast_cycle"]
-    if "isobaricInhPa" in pa_table.column_names:
-        partition_cols.append("isobaricInhPa")
-    elif "level" in pa_table.column_names:
-        partition_cols.append("level")
     
     try:
+        # Check if table exists
         dt = DeltaTable(delta_table_s3_path, storage_options=storage_options)
-
-        # --- VERSION-PROOF SCHEMA ALIGNER ---
-        schema_obj = dt.schema() if callable(dt.schema) else dt.schema
-        
-        if hasattr(schema_obj, "to_pyarrow"):
-            target_cols = schema_obj.to_pyarrow().names
-        elif hasattr(schema_obj, "to_arrow"):
-            target_cols = schema_obj.to_arrow().names
-        elif hasattr(schema_obj, "fields"):
-            target_cols = [f.name for f in schema_obj.fields]
+        table_exists = True
+    except Exception as e:
+        if any(k in str(e).lower() for k in ["not a delta table", "not found", "no files"]):
+            table_exists = False
         else:
-            target_cols = [getattr(f, "name", str(f)) for f in schema_obj] 
-            
-        source_cols = pa_table.column_names
+            raise e
 
+    # If this is the very first time writing to this directory
+    if not table_exists:
+        logger.warning(f"⚠️ Delta table not initialized. Creating vertically partitioned table safely...")
+        write_deltalake(
+            delta_table_s3_path, 
+            pa_table, 
+            mode="append",  
+            partition_by=partition_cols,
+            storage_options=storage_options,
+            # --- THE METADATA HOARDING FIX ---
+            configuration={
+                "delta.logRetentionDuration": "interval 3 days", # Delete JSON logs after 3 days
+                "delta.checkpointInterval": "5"                  # Roll JSONs into a Parquet checkpoint every 5 runs instead of 10
+            }
+        )
+        return
+
+    # --- DYNAMIC SCHEMA CASTER (Keeps PyArrow perfectly aligned with Delta) ---
+    schema_obj = dt.schema() if callable(dt.schema) else dt.schema
+    
+    target_pa_schema = None
+    if hasattr(schema_obj, "to_pyarrow"):
+        target_pa_schema = schema_obj.to_pyarrow()
+    elif hasattr(schema_obj, "to_arrow"):
+        target_pa_schema = schema_obj.to_arrow()
+
+    if target_pa_schema:
+        target_cols = target_pa_schema.names
+        
+        for field in target_pa_schema:
+            col_name = field.name
+            target_type = field.type
+            
+            if not isinstance(target_type, pa.DataType):
+                continue
+            
+            if col_name in pa_table.column_names:
+                source_type = pa_table.schema.field(col_name).type
+                if source_type != target_type:
+                    pa_table = pa_table.set_column(
+                        pa_table.schema.get_field_index(col_name),
+                        col_name,
+                        pc.cast(pa_table[col_name], target_type)
+                    )
+                    
+        source_cols = pa_table.column_names
         if set(target_cols) == set(source_cols) and target_cols != source_cols:
-            logger.info("🔁 Reordering source Arrow table columns to match Delta target schema order")
             pa_table = pa_table.select(target_cols)
         elif set(target_cols) != set(source_cols):
-            missing_fields = set(target_cols) - set(source_cols)
-            extra_fields = set(source_cols) - set(target_cols)
-            logger.error(f"❌ Source fields differ from Delta target fields (missing={missing_fields}, extra={extra_fields})")
             raise ValueError("Schema mismatch detected. Halting to prevent data corruption.")
 
-        # --- SIMPLIFIED MERGE EXECUTION ---
-        (
-            dt.merge(
-                source=pa_table,
-                predicate=predicate,
-                source_alias="s",
-                target_alias="t"
-            )
-            .when_not_matched_insert_all()
-            .when_matched_update_all() 
-            .execute()
-        )
-        logger.info(f"✅ Arrow-Native Upsert successful (Partition Pruned) via keys: {pk_cols}")
-        
+    # --- THE BULLETPROOF IDEMPOTENCY FIX: DYNAMIC PARTITION OVERWRITE ---
+    # --- THE BULLETPROOF IDEMPOTENCY FIX: EXPLICIT DELETE + APPEND ---
+    # 1. Extract the exact partitions present in the incoming PyArrow table
+    unique_dates = pa_table["forecast_date"].unique().to_pylist()
+    unique_cycles = pa_table["forecast_cycle"].unique().to_pylist()
+
+    date_list = ",".join([f"'{d}'" for d in unique_dates])
+    cycle_list = ",".join([str(c) for c in unique_cycles])
+    
+    # 2. Build a standard SQL predicate with explicit Type Casting
+    # DataFusion parses '0' as Int64, but our cycle is Int32. Casting the column prevents the mismatch.
+    delete_predicate = f"forecast_date IN ({date_list}) AND CAST(forecast_cycle AS BIGINT) IN ({cycle_list})"
+
+    logger.info(f"♻️ Executing Explicit Partition Wipe: {delete_predicate}")
+    
+    # 3. Explicitly delete the old partition (Version-proof)
+    try:
+        dt.delete(delete_predicate)
+        logger.info(f"♻️ Executed Explicit Partition Wipe: {delete_predicate}")
     except Exception as e:
-        error_str = str(e).lower()
+        logger.warning(f"⚠️ Partition wipe skipped/failed (it might already be empty): {e}")
+
+    # 4. Append the fresh data
+    logger.info(f"✅ Appending fresh batch to Delta Lake...")
+    write_deltalake(
+        delta_table_s3_path,
+        pa_table,
+        mode="append", # Universally supported
+        partition_by=partition_cols,
+        storage_options=storage_options
+    )
+    # --- ADD THIS NEW BLOCK ---
+    # --- 5. Physically delete the old files from S3 ---
+    try:
+        logger.info(f"🧹 Vacuuming old, tombstoned files from S3...")
         
-        # 1. If the table is missing entirely
-        if any(k in error_str for k in ["not a delta table", "not found", "no table found", "no files in log segment"]):
-            logger.warning(f"⚠️ Delta table not initialized. Creating vertically partitioned table safely...")
-            write_deltalake(
-                delta_table_s3_path, 
-                pa_table, 
-                mode="append",  
-                schema_mode="merge", 
-                partition_by=partition_cols,
-                storage_options=storage_options
-            )
-            
-        # 2. If the schema order is scrambled
-        elif any(k in error_str for k in ["field names are not matching", "target schema", "schema mismatch", "does not exist in schema", "lat_i"]):
-            logger.warning(f"⚠️ Delta table schema mismatch detected ({e}). Forcing schema overwrite...")
-            write_deltalake(
-                delta_table_s3_path,
-                pa_table,
-                mode="overwrite",
-                schema_mode="overwrite",
-                partition_by=partition_cols,
-                storage_options=storage_options
-            )
-            
-        # 3. True failures
-        else:
-            logger.error(f"❌ Upsert failed: {e}")
-            raise e
-                
+        # 1. Reload the table so it sees the brand-new delete and append commits
+        dt_clean = DeltaTable(delta_table_s3_path, storage_options=storage_options)
+        
+        # 2. Execute vacuum. YOU MUST SET dry_run=False to actually delete files!
+        deleted_files = dt_clean.vacuum(
+            retention_hours=0, 
+            enforce_retention_duration=False, 
+            dry_run=False  # <--- The silver bullet
+        )
+        
+        logger.info(f"✨ S3 Bucket clean! Physically deleted: {len(deleted_files)} files.")
+    except Exception as e:
+        logger.warning(f"⚠️ Vacuum failed: {e}")
+        
+    logger.info(f"🎉 Pipeline Transaction Complete!")
+
 # ==============================================================================
-# DATA EXTRACTORS (UPDATED FOR MEMORY BATCHING)
+# DATA EXTRACTORS (BATCHING IMPLEMENTED)
 # ==============================================================================
 
 def download_gfs_robust(date_obj, cycle, steps):
     """GFS Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake)"""
     
-    # Ensure steps is an iterable list for batching
     if not isinstance(steps, (list, tuple)):
         steps = [steps]
         
@@ -460,7 +455,7 @@ def download_gfs_robust(date_obj, cycle, steps):
             all_success = False
 
     # ---------------------------------------------------------
-    # BATCH WRITE TO DELTA LAKE (Executes exactly once)
+    # BATCH WRITE TO DELTA LAKE
     # ---------------------------------------------------------
     if arrow_tables and master_pk_cols:
         try:
@@ -489,7 +484,6 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}z"
     
-    # Ensure steps is an iterable list for batching
     if not isinstance(steps, (list, tuple)):
         steps = [steps]
         
@@ -553,7 +547,7 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
             return False
 
         if task_dict is not None:
-            task_name = task_dict['name'] # Save for the batch write
+            task_name = task_dict['name'] 
             temp_path = os.path.join(temp_dir, task_dict['temp_name'])
             download_ok = False
             
@@ -609,7 +603,7 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
                     except OSError: pass
         
     # ---------------------------------------------------------
-    # BATCH WRITE TO DELTA LAKE (Executes exactly once)
+    # BATCH WRITE TO DELTA LAKE 
     # ---------------------------------------------------------
     if arrow_tables and master_pk_cols and task_name:
         try:

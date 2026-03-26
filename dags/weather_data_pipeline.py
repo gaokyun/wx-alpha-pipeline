@@ -153,26 +153,27 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
             timeout=7200       
         )
 
-        # 2. Download Task
+        # 2. Download Task (UPDATED FOR BATCHING)
         @task(task_id=f'download_{mod}_{ttyp}')
         def run_download(data_interval_end: pendulum.DateTime = None):
             target_date, cycle = get_cycle_and_date(data_interval_end, t_key)
             print(f"🚀 Extracting {mod.upper()} {ttyp.upper()} | Date: {target_date.format('YYYY-MM-DD')} | Cycle: {cycle}z")
+            print(f"📦 Batching steps: {TARGET_STEPS}")
             
             if mod == 'gfs':
                 from etl.meteorology import download_gfs_robust
-                for step in TARGET_STEPS:
-                    if not download_gfs_robust(target_date, cycle, step): 
-                        raise Exception(f"GFS failed at step {step}h")
+                # Pass the entire list of steps at once
+                if not download_gfs_robust(target_date, cycle, TARGET_STEPS): 
+                    raise Exception(f"GFS extraction batch failed")
             else:
                 from etl.meteorology import download_ecmwf_unified
                 if ttyp == 'spread' and cycle not in [0, 12]:
                     print(f"Skipping {mod}-spread for cycle {cycle}z.")
                     return "SKIPPED"
                     
-                for step in TARGET_STEPS:
-                    if not download_ecmwf_unified(target_date, cycle, step, mod, ttyp):
-                        raise Exception(f"ECMWF failed at step {step}h")
+                # Pass the entire list of steps at once
+                if not download_ecmwf_unified(target_date, cycle, TARGET_STEPS, mod, ttyp):
+                    raise Exception(f"ECMWF extraction batch failed")
                         
             return "SUCCESS"
 
@@ -240,7 +241,6 @@ def transform_gfs_snowflake():
 @dag(
     dag_id='weather_ops.transform.ecmwf_dbt_snowflake',
     default_args=default_args,
-    # FIX: Require both essential datasets to finish before triggering DBT
     schedule=[ASSETS['aifs-upper'], ASSETS['aifs-surface']], 
     start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
     catchup=False,
@@ -252,29 +252,11 @@ def transform_ecmwf_snowflake():
     def batch_refresh_metadata(data_interval_end: pendulum.DateTime = None):
         target_date, cycle = get_cycle_and_date(data_interval_end, 'aifs-upper')
         
-        if cycle != 12:
-            hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
-            sql_commands = [
-                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.AIFS_UPPER REFRESH;",
-                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.AIFS_SURFACE REFRESH;",
-                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.AIFS_SPREAD REFRESH;",
-                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.IFS_UPPER REFRESH;",
-                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.IFS_SURFACE REFRESH;",
-                "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.IFS_SPREAD REFRESH;"
-            ]
-            print(f"💰 {cycle}z BATCH MODE: Executing bulk ECMWF refresh.")
-            hook.run(sql_commands) 
-            # Note: The duplicate sql = """...""" block is completely removed.
-        else:
-            print(f"⚡ 12z REAL-TIME MODE: ECMWF tables already refreshed. Skipping bulk.")
-
-        target_date, cycle = get_cycle_and_date(data_interval_end, 'aifs-upper')
-        
         # COST PATH: Execute bulk refresh
         if cycle != 12:
             hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
             
-            # 🛠️ FIX: Pass as a list of independent commands to satisfy the Snowflake Connector
+            # Pass as a list of independent commands to satisfy the Snowflake Connector
             sql_commands = [
                 "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_upper REFRESH;",
                 "ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_surface REFRESH;",
@@ -285,25 +267,6 @@ def transform_ecmwf_snowflake():
             ]
             print(f"💰 {cycle}z BATCH MODE: Executing bulk ECMWF refresh.")
             hook.run(sql_commands) 
-        else:
-            print(f"⚡ 12z REAL-TIME MODE: ECMWF tables already refreshed. Skipping bulk.")
-
-        target_date, cycle = get_cycle_and_date(data_interval_end, 'aifs-upper')
-        
-        # COST PATH: Execute bulk refresh
-        if cycle != 12:
-            hook = SnowflakeHook(snowflake_conn_id=SNOWFLAKE_CONN_ID)
-            # Refreshes all tables simultaneously, utilizing a single Warehouse spin-up
-            sql = """
-                ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_upper REFRESH;
-                ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_surface REFRESH;
-                ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.aifs_spread REFRESH;
-                ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.ifs_upper REFRESH;
-                ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.ifs_surface REFRESH;
-                ALTER EXTERNAL TABLE PHYSICAL_METEOR_DB.RAW.ifs_spread REFRESH;
-            """
-            print(f"💰 {cycle}z BATCH MODE: Executing bulk ECMWF refresh.")
-            hook.run(sql)
         else:
             print(f"⚡ 12z REAL-TIME MODE: ECMWF tables already refreshed. Skipping bulk.")
 
