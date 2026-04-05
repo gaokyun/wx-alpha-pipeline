@@ -3,7 +3,7 @@ WITH stg_upper AS (
 union all
     SELECT 'ifs' as model, * FROM {{ ref('stg_ecmwf_ifs_upper') }}
 union all
-    SELECT 'gfs' as model, * FROM {{ ref('stg_gfs_upper ') }}   
+    SELECT 'gfs' as model, * FROM {{ ref('stg_gfs_upper') }}   
 )
 
 SELECT * FROM stg_upper

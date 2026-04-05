@@ -3,6 +3,21 @@
 physical_meteor:
   target: dev
   outputs:
+    prod_oracledw:
+      type: oracle
+      host: "{{ env_var('ORACLE_HOST') }}"
+      user: "{{ env_var('ORACLE_USER') }}"
+      pass: "{{ env_var('ORACLE_PASSWORD') }}"
+      # The '| int' filter is critical here because dbt expects port to be an integer, 
+      # but environment variables are parsed as strings by default.
+      port: "{{ env_var('ORACLE_PORT') | int }}"
+      service: "{{ env_var('ORACLE_SERVICE') }}"
+      schema: "{{ env_var('ORACLE_SCHEMA') }}"
+      
+      # For modern Oracle Autonomous DW or secured connections, protocol is usually TCPS.
+      # Change to 'tcp' if you are connecting to a standard internal unencrypted instance.
+      protocol: tcps
+
     prod:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"

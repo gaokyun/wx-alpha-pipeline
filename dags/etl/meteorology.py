@@ -37,7 +37,7 @@ weather_config = Config()
 
 METEO_REGISTRY = {
     "upper": {
-        "gh": {"gfs": ":HGT:500 mb:", "ecmwf": "gh", "levelist": [500]},
+        "gh": {"gfs": ":HGT:500 mb:", "ecmwf": ["gh", "z"], "levelist": [500]},
         "t": {"gfs": ":TMP:850 mb:", "ecmwf": "t", "levelist": [850]},
         "u": {"gfs": ":UGRD:250 mb:", "ecmwf": "u", "levelist": [250]},
         "v": {"gfs": ":VGRD:250 mb:", "ecmwf": "v", "levelist": [250]},
@@ -527,11 +527,24 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
                 }
                 
         elif task_type == 'upper':
-            short_names_upper = [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]
+            # Flatten the param list in case some entries are lists (like ["gh", "z"])
+            raw_params = [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]
+            short_names_upper = []
+            for p in raw_params:
+                if isinstance(p, list):
+                    short_names_upper.extend(p)
+                else:
+                    short_names_upper.append(p)
+
             task_dict = {
                 "name": f"{file_prefix}_upper",
                 "temp_name": f"TEMP_GLOBAL_{file_prefix}_upper_{date_str}_{cycle_str}_{step}h.grib2",
-                "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": short_names_upper}
+                "params": {
+                    **common_params, 
+                    "levtype": "pl", 
+                    "levelist": [850, 500, 250], 
+                    "param": list(set(short_names_upper)) # Ensure uniqueness
+                }
             }
             
         elif task_type == 'surface':

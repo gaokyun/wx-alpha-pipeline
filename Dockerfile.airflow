@@ -3,12 +3,15 @@ FROM apache/airflow:3.1.6
 
 USER root
 
-# Fix for OCI Exit Code 100: Increase retries and use a stable DNS if needed
+# 1. System-level dependencies for Weather Data (GRIB/NetCDF)
 RUN apt-get update || (sleep 5 && apt-get update) && \
     apt-get install -y --no-install-recommends \
     libeccodes-dev \
+    libeccodes0 \
+    libmagic1 \
     build-essential \
     libpq-dev \
+    curl \
     sudo \
     && apt-get autoremove -yqq --purge \
     && apt-get clean \
@@ -19,18 +22,42 @@ RUN echo "airflow ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 USER airflow
 
-# Install meteorological stack + Jupyter + DE tools
-# Note: Airflow images use a specific layout; pip install --user is default
-RUN pip install --no-cache-dir \
-    jupyterlab \
-    ecmwf-opendata \
-    xarray \
-    cfgrib \
-    netCDF4 \
-    pandas \
-    docker boto3 pyarrow deltalake \
-    apache-airflow-providers-amazon \
-    snowflake-connector-python \
-    plotly dash python-dotenv sqlalchemy psycopg2-binary
+# 2. Optimized Python Stack with Strict Constraints
+# We dynamically pull the Airflow and Python versions built into the base image
+# to construct the official constraint URL.
+RUN set -ex \
+    && AIRFLOW_VERSION=$(airflow version) \
+    && PYTHON_VERSION=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")') \
+    && CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt" \
+    && pip install --no-cache-dir \
+        "apache-airflow==${AIRFLOW_VERSION}" \
+        # Jupyter & UI
+        jupyterlab \
+        plotly dash \
+        # Weather & Science Stack
+        ecmwf-opendata \
+        xarray \
+        dask \
+        cfgrib \
+        netCDF4 \
+        eccodes \
+        # Azure & AWS Data Lake Storage
+        azure-storage-file-datalake adlfs \
+        boto3 \
+        # Data Engineering & Formats
+        pyarrow \
+        deltalake \
+        pandas \
+        python-magic \
+        # Database Connectors
+        apache-airflow-providers-amazon \
+        apache-airflow-providers-oracle \
+        snowflake-connector-python \
+        psycopg2-binary \
+        sqlalchemy \
+        python-dotenv \
+        docker \
+        --constraint "${CONSTRAINT_URL}"
+
 # COPY requirements.txt .
 # RUN pip install --no-cache-dir -r requirements.txt

@@ -28,6 +28,7 @@ x-airflow-common:
   environment:
     &airflow-common-env
     # --- Infrastructure & Backend ---
+    PYTHONWARNINGS: ignore::DeprecationWarning
     AIRFLOW__CORE__EXECUTOR: CeleryExecutor
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:${POSTGRES_PASS}@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql://airflow:${POSTGRES_PASS}@postgres/airflow
@@ -58,6 +59,24 @@ x-airflow-common:
 
     # --- External Connections (Snowflake/Postgres) ---
     AIRFLOW_CONN_POSTGRES_DEFAULT: 'postgres://airflow:${POSTGRES_PASS}@postgres:5432/airflow'
+    # --- ADD THIS ORACLE BLOCK ---
+    AIRFLOW_CONN_ORACLE_CONN: >
+      {
+        "conn_type": "oracle",
+        "login": "${ORACLE_USER}",
+        "password": "${ORACLE_PASSWORD}",
+        "extra": {
+          "dsn": "(description=(retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=${ORACLE_PORT:-1521})(host=${ORACLE_HOST}))(connect_data=(service_name=${ORACLE_SERVICE}))(security=(ssl_server_dn_match=yes)))"
+        }
+      }
+    # -----------------------------
+    # Inject OCI Storage Variables
+    OCI_BUCKET: ${OCI_OBJECT_STORAGE_BUCKET}
+    OCI_REGION: ${OCI_OBJECT_STORAGE_REGION}
+    OCI_ACCESS_KEY: ${OCI_OBJECT_STORAGE_ACCESS_KEY}
+    OCI_SECRET_KEY: ${OCI_OBJECT_STORAGE_SECRET_KEY}
+    OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
+
     AIRFLOW_CONN_SNOWFLAKE_CONN: >
       {
         "conn_type": "snowflake",
@@ -127,6 +146,50 @@ services:
       retries: 50
       start_period: 30s
     restart: always
+  
+  dbt-oracledw:
+    build:
+      context: . 
+      dockerfile: Dockerfile.dbt-oracledw
+    image: dbt-oracledw:latest
+    container_name: dbt-oracledw-runner
+    working_dir: /usr/app/physical_meteor
+    env_file:
+      - .env 
+    environment:
+      # Keep your dbt log/target paths aligned with the other containers
+      - DBT_LOG_PATH=/tmp/dbt/logs
+      - DBT_TARGET_PATH=/tmp/dbt/target
+      
+      # --- Oracle DW Connection (Prod) ---
+      - ORACLE_HOST=${ORACLE_HOST}
+      - ORACLE_PORT=${ORACLE_PORT:-1521} # Default Oracle port is usually 1521
+      - ORACLE_SERVICE=${ORACLE_SERVICE} # Or ORACLE_DATABASE depending on your profiles.yml
+      - ORACLE_USER=${ORACLE_USER}
+      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
+      - ORACLE_SCHEMA=${ORACLE_SCHEMA}
+
+      # --- Snowflake Connection (Fallback) ---
+      # Updated to match the variables you actually use in your .env file
+      - SNOWFLAKE_ACCOUNT=${SNOW_ACC}
+      - SNOWFLAKE_USER=${SNOW_USER}
+      - SNOWFLAKE_PASSWORD=${SNOW_PASS}
+      - SNOWFLAKE_DATABASE=${SNOW_DB}
+      - SNOWFLAKE_WAREHOUSE=${SNOW_WARE}
+      - SNOWFLAKE_SCHEMA=${SNOW_SCHEMA}
+
+      # --- Postgres Connection (Dev) ---
+      - POSTGRES_PASS=${POSTGRES_PASS}
+      
+    volumes:
+      # Aligned with your other containers so Airflow sees the same file structure
+      - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw 
+      # Explicitly map your profiles.yml
+      - ${AIRFLOW_PROJ_DIR:-.}/dbt/physical_meteor/profiles.yml:/root/.dbt/profiles.yml
+    
+    # Required so Airflow can 'docker exec' into this container
+    entrypoint: ["bash", "-c", "sleep infinity"]
+    restart: "no"
 
   dbt-postgres:
     build:
@@ -167,28 +230,33 @@ services:
     entrypoint: ["bash","-c","sleep infinity"]
     restart: "no"
 
-  jupyterlab:
+  jjupyterlab:
     build:
       context: .
       dockerfile: Dockerfile.airflow
     container_name: jupyter-developer-env
-    # ADD THIS LINE:
-    entrypoint: ["/bin/bash", "-c"]
-    # We add a quick 'mkdir' to ensure the user has a place to write config
+    
+    # FIX 1: Delete the 'entrypoint: ["/bin/bash", "-c"]' line completely.
+    
+    # FIX 2: We invoke bash -c explicitly inside the command block.
+    # Note the outer single quotes ('...') and inner double quotes ("...") 
+    # around the password hash. This ensures Bash properly expands the variable.
     command: >
-      "mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
-       jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir='/opt/airflow'"
+      bash -c 'mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
+      jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir="/opt/airflow" --ServerApp.password="$${JUPYTER_PASS_HASH}"'
+      
     working_dir: /opt/airflow
-    user: "50000:0"  # Force the Airflow user
+    user: "50000:0"  
     ports:
       - "9330:9330"
     volumes:
       - /home/airflow/dev/notebooks:/opt/airflow/notebooks
       - /home/airflow/dev/data:/opt/airflow/data
       - /home/airflow/dev/wx-alpha-pipeline:/opt/airflow/wx-alpha-pipeline
+    env_file:
+      - .env
     environment:
       - JUPYTER_ENABLE_LAB=yes
-      - JUPYTER_PASSWORD_HASH=${JUPYTER_PASS_HASH}
       - AIRFLOW_UID=50000 
     restart: always
 
@@ -256,6 +324,7 @@ services:
       <<: *airflow-common-env
       DUMB_INIT_SETSID: "0"
       AIRFLOW__LOGGING__SERVER_LOG_URL: "http://airflow-worker:8793/log"
+      
     restart: always
     volumes:
       # 1. Restore the code and logs mapping

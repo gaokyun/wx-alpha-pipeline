@@ -19,6 +19,9 @@ renamed_and_casted AS (
         CAST("isobaricInhPa" AS INTEGER) AS pressure_level_hpa,
 
         -- 3. Meteorological Variables
+        (CAST("z" AS FLOAT) /  9.80665) AS geopotential_height_m,
+
+        -- 3. Meteorological Variables
         CAST("t" AS FLOAT) AS temp_kelvin,
         (CAST("t" AS FLOAT) - 273.15) AS temp_celsius,
 

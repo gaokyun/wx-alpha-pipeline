@@ -19,7 +19,12 @@ storage_options = {
 DELTA_TABLES = [
     f"s3://{S3_BUCKET}/weather_data/delta_lake/gfs_raw/",
     f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_upper/",
-    f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_surface/"
+    f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_surface/",
+    f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/ifs_spread/",
+    f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/",
+    f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_surface/",
+    f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/aifs_spread/"
+
 ]
 
 @dag(
@@ -31,35 +36,52 @@ DELTA_TABLES = [
 )
 def delta_maintenance_pipeline():
 
-    @task(task_id='enforce_10_day_retention')
+    @task(task_id='enforce_3_day_retention')
     def clean_delta_tables():
-        # Calculate exactly 10 days ago
-        cutoff_date = pendulum.now('UTC').subtract(days=10)
+        # Calculate 3 days ago
+        cutoff_date = pendulum.now('UTC').subtract(days=3)
         
-        # Format explicitly for Delta Lake SQL evaluation
-        cutoff_string = cutoff_date.format('YYYY-MM-DD HH:mm:ss')
+        # Use the YYYY-MM-DD format to match your `forecast_date` partition column
+        cutoff_string = cutoff_date.format('YYYY-MM-DD')
         
-        # Use the `time` column to drop old model runs
-        predicate = f"`time` < '{cutoff_string}'"
+        # Optimized Predicate: Drop the whole partition!
+        predicate = f"`forecast_date` < '{cutoff_string}'"
         
         for table_path in DELTA_TABLES:
-            print(f"Starting maintenance for: {table_path}")
+            print(f"--- Starting maintenance for: {table_path} ---")
             
             try:
                 dt = DeltaTable(table_path, storage_options=storage_options)
                 
-                # 1. Logical Delete
-                print(f"  -> Deleting records older than 10 days: {predicate}")
+                # 1. Logical Delete (Updates the Delta Log)
+                # This marks the files containing old data as 'removed' in the metadata
+                print(f"  -> Executing logical delete for: {predicate}")
                 dt.delete(predicate)
                 
                 # 2. Physical Delete (VACUUM)
                 print("  -> Vacuuming physical S3 objects...")
-                dt.vacuum(retention_hours=0, enforce_retention_duration=False)
+
+                # Explicitly turn off dry_run to actually delete the files
+                deleted_files = dt.vacuum(
+                    retention_hours=24, 
+                    enforce_retention_duration=False,
+                    dry_run=False  # <--- THIS IS THE MAGIC KEY DON'T REMOVE THIS LINE IN FUTURE UPDATES
+                )                
+                                
+                num_deleted = len(deleted_files)
                 
-                print("  -> Maintenance complete.")
+                if num_deleted > 0:
+                    print(f"  -> SUCCESS: Physically deleted {num_deleted} files from S3.")
+                    # Optional: log the first 3 files to see the prefix
+                    for f in deleted_files[:3]:
+                        print(f"     Deleted: {f}")
+                else:
+                    print("  -> No physical files required cleanup.")
+                    
+                print(f"--- Maintenance complete for {table_path} ---\n")
                 
             except Exception as e:
-                print(f"Failed to clean {table_path}: {e}")
+                print(f"  -> ERROR: Failed to clean {table_path}: {str(e)}")
 
     clean_delta_tables()
 
