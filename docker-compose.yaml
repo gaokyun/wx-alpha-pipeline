@@ -37,12 +37,12 @@ x-airflow-common:
     # Security & Auth (Synchronized across all nodes)
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
-    AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}  # <-- ADD THIS LINE FOR AIRFLOW 3
-    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
-    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth'
+    # AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}  # <-- ADD THIS LINE FOR AIRFLOW 3
+    # AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
+    # AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth'
     
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
-    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
+    # AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-server:8080/execution/'
 
     # --- UI & Auth ---
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
@@ -260,13 +260,13 @@ services:
       - AIRFLOW_UID=50000 
     restart: always
 
-  airflow-apiserver:
+  airflow-webserver:
     <<: *airflow-common
-    command: api-server
+    command: webserver
     ports:
       - "9340:8080"
     healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/version"]
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -336,7 +336,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       <<: *airflow-common-depends-on
-      airflow-apiserver:
+      airflow-webserver:
         condition: service_healthy
       airflow-init:
         condition: service_completed_successfully

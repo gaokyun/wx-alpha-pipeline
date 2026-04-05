@@ -1,6 +1,7 @@
 import os
 import pendulum
-from airflow.sdk import dag, task
+# --- AIRFLOW 2.x COMPATIBLE IMPORTS ---
+from airflow.decorators import dag, task
 from deltalake import DeltaTable
 
 # Re-use your central config
@@ -24,7 +25,6 @@ DELTA_TABLES = [
     f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/",
     f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_surface/",
     f"s3://{S3_BUCKET}/weather_data/delta_lake/ecmwf_raw/aifs_spread/"
-
 ]
 
 @dag(
@@ -54,7 +54,6 @@ def delta_maintenance_pipeline():
                 dt = DeltaTable(table_path, storage_options=storage_options)
                 
                 # 1. Logical Delete (Updates the Delta Log)
-                # This marks the files containing old data as 'removed' in the metadata
                 print(f"  -> Executing logical delete for: {predicate}")
                 dt.delete(predicate)
                 
@@ -62,19 +61,20 @@ def delta_maintenance_pipeline():
                 print("  -> Vacuuming physical S3 objects...")
 
                 # Explicitly turn off dry_run to actually delete the files
+                # Note: retention_hours=24 means we delete anything logically removed 
+                # for more than 24 hours.
                 deleted_files = dt.vacuum(
                     retention_hours=24, 
                     enforce_retention_duration=False,
-                    dry_run=False  # <--- THIS IS THE MAGIC KEY DON'T REMOVE THIS LINE IN FUTURE UPDATES
-                )                
-                                
+                    dry_run=False
+                )                                
+                                                 
                 num_deleted = len(deleted_files)
                 
                 if num_deleted > 0:
-                    print(f"  -> SUCCESS: Physically deleted {num_deleted} files from S3.")
-                    # Optional: log the first 3 files to see the prefix
+                    print(f"  -> SUCCESS: Physically deleted {num_deleted} files.")
                     for f in deleted_files[:3]:
-                        print(f"     Deleted: {f}")
+                        print(f"     Example Deleted: {f}")
                 else:
                     print("  -> No physical files required cleanup.")
                     
@@ -85,4 +85,5 @@ def delta_maintenance_pipeline():
 
     clean_delta_tables()
 
+# Instantiate the DAG
 maintenance_dag = delta_maintenance_pipeline()

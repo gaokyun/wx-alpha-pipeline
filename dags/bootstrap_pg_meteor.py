@@ -1,14 +1,14 @@
-# dags/bootstrap_pg_meteor.py
 from airflow import DAG
-# Updated import to resolve Airflow 3.x deprecation warning
-from airflow.providers.standard.operators.python import PythonOperator
+# --- AIRFLOW 2.x COMPATIBLE IMPORT ---
+from airflow.operators.python import PythonOperator
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from datetime import datetime
 
 with DAG(
     dag_id='bootstrap_pg_meteor',
     start_date=datetime(2026, 1, 1),
-    schedule=None, 
+    # Reverting to schedule_interval for maximum 2.x stability
+    schedule_interval=None, 
     catchup=False,
     tags=['local', 'postgres', 'infrastructure']
 ) as dag:
@@ -17,19 +17,22 @@ with DAG(
         """
         Physically initialize the local Postgres environment.
         """
-        # This will now find the 'postgres_default' connection we just created
+        # Finds the 'postgres_default' connection from your docker-compose.yaml
         primary_hook = PostgresHook(postgres_conn_id='postgres_default')
         
+        # Check if database exists before trying to create it
         exists_sql = "SELECT 1 FROM pg_database WHERE datname='PHYSICAL_METEOR_DB'"
         exists = primary_hook.get_first(exists_sql)
         
         if not exists:
             print("Postgres: Creating PHYSICAL_METEOR_DB...")
+            # autocommit=True is mandatory for CREATE DATABASE in Postgres
             primary_hook.run('CREATE DATABASE "PHYSICAL_METEOR_DB"', autocommit=True)
         else:
             print("Postgres: PHYSICAL_METEOR_DB already exists.")
 
         try:
+            # Connect specifically to the newly created DB to initialize schema
             db_hook = PostgresHook(
                 postgres_conn_id='postgres_default',
                 schema='PHYSICAL_METEOR_DB'

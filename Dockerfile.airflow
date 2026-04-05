@@ -1,5 +1,6 @@
 # Use specified Airflow 3 version
-FROM apache/airflow:3.1.6
+# Switched to the latest stable 2.x release
+FROM apache/airflow:2.11.2-python3.11
 
 USER root
 
@@ -45,11 +46,13 @@ RUN set -ex \
         azure-storage-file-datalake adlfs \
         boto3 \
         # Data Engineering & Formats
+        duckdb>=1.0.0 \
         pyarrow \
         deltalake \
         pandas \
         python-magic \
         # Database Connectors
+        oracledb>=2.0.0 \
         apache-airflow-providers-amazon \
         apache-airflow-providers-oracle \
         snowflake-connector-python \
