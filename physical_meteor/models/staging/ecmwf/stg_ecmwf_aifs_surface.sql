@@ -1,29 +1,37 @@
 WITH raw_surface AS (
-    SELECT * FROM {{ source('ecmwf_raw', 'aifs_surface') }} -- or 'ifs_surface'
+    SELECT * FROM {{ source('ecmwf_raw', 'at_aifs_surface') }}
 ),
 
 renamed_and_casted AS (
     SELECT
-        -- 1. Temporal
-        TO_TIMESTAMP_NTZ("time" / 1000000)::DATE AS cycle_date,
-        HOUR(TO_TIMESTAMP_NTZ("time" / 1000000)) AS cycle_hour,
-        CAST("step" AS INTEGER) AS forecast_step_hours,
-        TO_TIMESTAMP_NTZ("valid_time" / 1000000)::DATE AS valid_date,
-        HOUR(TO_TIMESTAMP_NTZ("valid_time" / 1000000)) AS valid_hour,
+        -- 1. Temporal (Native timestamps from Delta)
+        CAST(forecast_reference_time AS DATE) AS cycle_date,
+        EXTRACT(HOUR FROM forecast_reference_time) AS cycle_hour,
+        
+        CAST(step_hours AS INTEGER) AS forecast_step_hours,
+        
+        CAST(valid_time AS DATE) AS valid_date,
+        EXTRACT(HOUR FROM valid_time) AS valid_hour,
 
         -- 2. Spatial
-        CAST("latitude" AS FLOAT) AS lat,
-        CAST("longitude" AS FLOAT) AS lon,
+        CAST(latitude AS FLOAT) AS lat,
+        CAST(longitude AS FLOAT) AS lon,
 
-        -- 3. Meteorological (Using the correct raw names: t2m, d2m)
-        CAST("t2m" AS FLOAT) AS temp_2m_kelvin,
-        (CAST("t2m" AS FLOAT) - 273.15) AS temp_2m_celsius,
+        -- 3. Meteorological (Using mapped ECMWF short names)
+        -- CAST("2t" AS FLOAT) AS temp_2m_kelvin,
+        -- (CAST("2t" AS FLOAT) - 273.15) AS temp_2m_celsius,
+
+        CAST(t2m AS FLOAT) AS temp_2m_kelvin,
+        (CAST(t2m AS FLOAT) - 273.15) AS temp_2m_celsius,
+
+        CAST(d2m AS FLOAT) AS dewpoint_2m_kelvin,
+        (CAST(d2m AS FLOAT) - 273.15) AS dewpoint_2m_celsius,
+
+        -- CAST("2d" AS FLOAT) AS dewpoint_2m_kelvin,
+        -- (CAST("2d" AS FLOAT) - 273.15) AS dewpoint_2m_celsius,
         
-        CAST("d2m" AS FLOAT) AS dewpoint_2m_kelvin,
-        (CAST("d2m" AS FLOAT) - 273.15) AS dewpoint_2m_celsius,
-        
-        CAST("msl" AS FLOAT) / 100.0 AS msl_pressure_hpa, 
-        CAST("tp" AS FLOAT) AS total_precipitation_m
+        CAST(msl AS FLOAT) / 100.0 AS msl_pressure_hpa, 
+        CAST(tp AS FLOAT) AS total_precipitation_m
 
     FROM raw_surface
 )

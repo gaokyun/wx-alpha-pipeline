@@ -1,30 +1,39 @@
-# profiles.yml located at /usr/app/physical_meteor/profiles.yml
-
 physical_meteor:
-  target: dev
+  target: dev_duckdb
   outputs:
-    prod_oracledw:
-      type: oracle
-      host: "{{ env_var('ORACLE_HOST') }}"
-      user: "{{ env_var('ORACLE_USER') }}"
-      pass: "{{ env_var('ORACLE_PASSWORD') }}"
-      # The '| int' filter is critical here because dbt expects port to be an integer, 
-      # but environment variables are parsed as strings by default.
-      port: "{{ env_var('ORACLE_PORT') | int }}"
-      service: "{{ env_var('ORACLE_SERVICE') }}"
-      schema: "{{ env_var('ORACLE_SCHEMA') }}"
+    dev_duckdb:
+      type: duckdb
+      path: '/opt/airflow/data/physical_meteor_db.duckdb'
+      database: physical_meteor_db 
+      schema: main
+      threads: 4
       
-      # For modern Oracle Autonomous DW or secured connections, protocol is usually TCPS.
-      # Change to 'tcp' if you are connecting to a standard internal unencrypted instance.
-      protocol: tcps
+      extensions:
+        - httpfs
+        - aws
+        - delta
+        
+      # ❌ REMOVE the 'settings' block entirely
+      # ✅ KEEP the settings block for engine-level behavior
+      settings:
+        s3_use_instance_profile: false
+        s3_region: "{{ env_var('AWS_REGION') }}"
 
-    prod:
+      # ✅ ADD the 'secrets' block
+      secrets:
+        - type: s3
+          region: "{{ env_var('AWS_REGION') }}"
+          key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+          secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+
+    # -------------------------------------------------------------------------
+    # LEGACY / ALTERNATIVE TARGETS
+    # -------------------------------------------------------------------------
+    prod_snowflake:
       type: snowflake
       account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
       user: "{{ env_var('SNOWFLAKE_USER') }}"
       password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-      # Defaulting to ACCOUNTADMIN based on your previous SQL initialization, 
-      # but you can change this if you created a specific dbt role.
       role: ACCOUNTADMIN
       database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
       warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
@@ -32,8 +41,7 @@ physical_meteor:
       threads: 4
       client_session_keep_alive: False
 
-    # profiles.yml for Postgres
-    dev:
+    dev_postgres:
       type: postgres
       host: postgres
       user: airflow

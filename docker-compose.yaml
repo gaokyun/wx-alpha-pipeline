@@ -23,6 +23,7 @@ x-airflow-common:
   build:  
     context: .
     dockerfile: Dockerfile.airflow
+    target: airflow-base  # <--- This is the "base" stage in your Dockerfile
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -37,12 +38,8 @@ x-airflow-common:
     # Security & Auth (Synchronized across all nodes)
     AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
     AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW__WEBSERVER__SECRET_KEY}
-    # AIRFLOW__API__SECRET_KEY: ${AIRFLOW__API__SECRET_KEY}  # <-- ADD THIS LINE FOR AIRFLOW 3
-    # AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET}
-    # AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.session,airflow.api.auth.backend.basic_auth'
     
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
-    # AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-server:8080/execution/'
 
     # --- UI & Auth ---
     AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
@@ -59,23 +56,6 @@ x-airflow-common:
 
     # --- External Connections (Snowflake/Postgres) ---
     AIRFLOW_CONN_POSTGRES_DEFAULT: 'postgres://airflow:${POSTGRES_PASS}@postgres:5432/airflow'
-    # --- ADD THIS ORACLE BLOCK ---
-    AIRFLOW_CONN_ORACLE_CONN: >
-      {
-        "conn_type": "oracle",
-        "login": "${ORACLE_USER}",
-        "password": "${ORACLE_PASSWORD}",
-        "extra": {
-          "dsn": "(description=(retry_count=20)(retry_delay=3)(address=(protocol=tcps)(port=${ORACLE_PORT:-1521})(host=${ORACLE_HOST}))(connect_data=(service_name=${ORACLE_SERVICE}))(security=(ssl_server_dn_match=yes)))"
-        }
-      }
-    # -----------------------------
-    # Inject OCI Storage Variables
-    OCI_BUCKET: ${OCI_OBJECT_STORAGE_BUCKET}
-    OCI_REGION: ${OCI_OBJECT_STORAGE_REGION}
-    OCI_ACCESS_KEY: ${OCI_OBJECT_STORAGE_ACCESS_KEY}
-    OCI_SECRET_KEY: ${OCI_OBJECT_STORAGE_SECRET_KEY}
-    OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
 
     AIRFLOW_CONN_SNOWFLAKE_CONN: >
       {
@@ -95,12 +75,13 @@ x-airflow-common:
     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_KEY}
     AWS_REGION: ${AWS_REGION}
     AWS_S3_BUCKET: ${AWS_S3_BUCKET}
-    JUPYTER_PASSWORD_HASH: ${JUPYTER_PASS_HASH}
+    JUPYTER_PASS_HASH: ${JUPYTER_PASS_HASH}
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data  # <-- NEW: DuckDB Global Volume Mapping
     - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
@@ -147,47 +128,32 @@ services:
       start_period: 30s
     restart: always
   
-  dbt-oracledw:
+  # --- NEW: DBT DUCKDB RUNNER ---
+  dbt-duckdb:
     build:
       context: . 
-      dockerfile: Dockerfile.dbt-oracledw
-    image: dbt-oracledw:latest
-    container_name: dbt-oracledw-runner
+      dockerfile: Dockerfile.dbt-duckdb  # Make sure to create this Dockerfile!
+    image: dbt-duckdb:latest
+    container_name: dbt-duckdb-runner
     working_dir: /usr/app/physical_meteor
     env_file:
       - .env 
     environment:
-      # Keep your dbt log/target paths aligned with the other containers
       - DBT_LOG_PATH=/tmp/dbt/logs
       - DBT_TARGET_PATH=/tmp/dbt/target
       
-      # --- Oracle DW Connection (Prod) ---
-      - ORACLE_HOST=${ORACLE_HOST}
-      - ORACLE_PORT=${ORACLE_PORT:-1521} # Default Oracle port is usually 1521
-      - ORACLE_SERVICE=${ORACLE_SERVICE} # Or ORACLE_DATABASE depending on your profiles.yml
-      - ORACLE_USER=${ORACLE_USER}
-      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
-      - ORACLE_SCHEMA=${ORACLE_SCHEMA}
-
-      # --- Snowflake Connection (Fallback) ---
-      # Updated to match the variables you actually use in your .env file
-      - SNOWFLAKE_ACCOUNT=${SNOW_ACC}
-      - SNOWFLAKE_USER=${SNOW_USER}
-      - SNOWFLAKE_PASSWORD=${SNOW_PASS}
-      - SNOWFLAKE_DATABASE=${SNOW_DB}
-      - SNOWFLAKE_WAREHOUSE=${SNOW_WARE}
-      - SNOWFLAKE_SCHEMA=${SNOW_SCHEMA}
-
-      # --- Postgres Connection (Dev) ---
-      - POSTGRES_PASS=${POSTGRES_PASS}
+      # AWS credentials for DuckDB to read the S3 Delta Lake
+      - AWS_EC2_METADATA_DISABLED=true  # <--- ADD THIS
+      - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
+      - AWS_REGION=${AWS_REGION}
       
     volumes:
-      # Aligned with your other containers so Airflow sees the same file structure
       - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw 
-      # Explicitly map your profiles.yml
+      # DuckDB requires the runner to physically access the database file
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data:rw 
       - ${AIRFLOW_PROJ_DIR:-.}/dbt/physical_meteor/profiles.yml:/root/.dbt/profiles.yml
     
-    # Required so Airflow can 'docker exec' into this container
     entrypoint: ["bash", "-c", "sleep infinity"]
     restart: "no"
 
@@ -230,20 +196,25 @@ services:
     entrypoint: ["bash","-c","sleep infinity"]
     restart: "no"
 
-  jjupyterlab:
+  jupyterlab:
     build:
       context: .
       dockerfile: Dockerfile.airflow
+      target: jupyter-developer-env  # <--- Tells Docker which branch to use
+    image: custom-weather-jupyter:latest
     container_name: jupyter-developer-env
-    
-    # FIX 1: Delete the 'entrypoint: ["/bin/bash", "-c"]' line completely.
-    
-    # FIX 2: We invoke bash -c explicitly inside the command block.
-    # Note the outer single quotes ('...') and inner double quotes ("...") 
-    # around the password hash. This ensures Bash properly expands the variable.
-    command: >
-      bash -c 'mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
-      jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir="/opt/airflow" --ServerApp.password="$${JUPYTER_PASS_HASH}"'
+    # Jupyter kernel is being "Killed" without an error message when processing large NetCDF or GRIB files, you might want to add a shm_size
+    shm_size: '2gb'  # <--- Add it right here
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 65536
+        hard: 65536
+    # command: >
+    #   bash -c 'mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
+    #   jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir="/opt/airflow" --ServerApp.password="$${JUPYTER_PASS_HASH}"'
       
     working_dir: /opt/airflow
     user: "50000:0"  
@@ -251,15 +222,59 @@ services:
       - "9330:9330"
     volumes:
       - /home/airflow/dev/notebooks:/opt/airflow/notebooks
-      - /home/airflow/dev/data:/opt/airflow/data
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data # Aligned with common mapping
       - /home/airflow/dev/wx-alpha-pipeline:/opt/airflow/wx-alpha-pipeline
     env_file:
       - .env
     environment:
-      - JUPYTER_ENABLE_LAB=yes
-      - AIRFLOW_UID=50000 
+      #<<: *airflow-common-env  # This is a Map
+      JUPYTER_ENABLE_LAB: "yes" # Must also be Map format (no dash, use colon)
+      AIRFLOW_UID: "50000"
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ACCESS_KEY_ID: ${AWS_ACC_KEY}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_KEY}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      JUPYTER_PASS_HASH: ${JUPYTER_PASS_HASH}
     restart: always
 
+  # UI for your DuckDB Weather Warehouse
+  harlequin-duckdb:
+    build:
+      context: .
+      dockerfile: Dockerfile.harlequin
+    container_name: harlequin-duckdb
+    volumes:
+      # Use the same mapping as your dbt service for consistency
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/data:rw
+    environment:
+      # This is the "OCI Guardrail" at the SDK level
+      - AWS_EC2_METADATA_DISABLED=true
+      # Map your host variables to the container
+      - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
+      - AWS_REGION=${AWS_REGION}
+    stdin_open: true
+    tty: true
+    profiles: ["debug"] # Keeps it from starting with 'up'
+    command: ["/data/physical_meteor_db.duckdb", "-r"]
+
+  # UI for your Airflow Metadata / Postgres Store
+  harlequin-postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.harlequin
+    container_name: harlequin-postgres
+    depends_on:
+      - postgres # Matches your existing postgres service name
+    environment:
+      # These variables allow Harlequin to auto-authenticate
+      - PGPASSWORD=${POSTGRES_PASSWORD:-airflow} 
+    stdin_open: true
+    tty: true
+    profiles: ["debug"]
+    # Connection string using internal Docker DNS (the 'postgres' service name)
+    command: ["-a", "postgres", "--host", "postgres", "--port", "5432", "--user", "airflow", "--dbname", "airflow"]
+    
   airflow-webserver:
     <<: *airflow-common
     command: webserver
@@ -311,7 +326,17 @@ services:
     <<: *airflow-common
     hostname: airflow-worker
     container_name: airflow-worker
+    # Default command (can be overridden by docker-compose)
     command: celery worker
+    # --- THE TWEAK: Raise file descriptor limits for Xarray/Dask ---
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+      nproc:
+        soft: 65536
+        hard: 65536
+    # --------------------------------------------------------------
     healthcheck:
       test:
         - "CMD-SHELL"
@@ -327,12 +352,12 @@ services:
       
     restart: always
     volumes:
-      # 1. Restore the code and logs mapping
       - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
       - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
       - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
       - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-      # 2. Keep the Docker socket for dbt    
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data  # <-- NEW: DuckDB volume for worker
+      - ${AIRFLOW_PROJ_DIR:-.}/physical_meteor:/opt/airflow/physical_meteor  # <-- NEW: DuckDB volume for worker
       - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       <<: *airflow-common-depends-on
@@ -408,14 +433,15 @@ services:
         echo
         echo "Creating missing opt dirs if missing:"
         echo
-        mkdir -v -p /opt/airflow/{logs,dags,plugins,config}
+        # <-- NEW: Added 'data' to the folder creation and permission loops
+        mkdir -v -p /opt/airflow/{logs,dags,plugins,config,data}
         echo
         echo "Airflow version:"
         /entrypoint airflow version
         echo
         echo "Files in shared volumes:"
         echo
-        ls -la /opt/airflow/{logs,dags,plugins,config}
+        ls -la /opt/airflow/{logs,dags,plugins,config,data}
         echo
         echo "Running airflow config list to create default config file if missing."
         echo
@@ -423,7 +449,7 @@ services:
         echo
         echo "Files in shared volumes:"
         echo
-        ls -la /opt/airflow/{logs,dags,plugins,config}
+        ls -la /opt/airflow/{logs,dags,plugins,config,data}
         echo
         echo "Change ownership of files in /opt/airflow to ${AIRFLOW_UID}:0"
         echo
@@ -431,11 +457,11 @@ services:
         echo
         echo "Change ownership of files in shared volumes to ${AIRFLOW_UID}:0"
         echo
-        chown -v -R "${AIRFLOW_UID}:0" /opt/airflow/{logs,dags,plugins,config}
+        chown -v -R "${AIRFLOW_UID}:0" /opt/airflow/{logs,dags,plugins,config,data}
         echo
         echo "Files in shared volumes:"
         echo
-        ls -la /opt/airflow/{logs,dags,plugins,config}
+        ls -la /opt/airflow/{logs,dags,plugins,config,data}
         
         echo "🔧 Forcing DB migration to ensure tables exist..."
         airflow db migrate

@@ -1,12 +1,12 @@
-# Use specified Airflow 3 version
-# Switched to the latest stable 2.x release
-FROM apache/airflow:2.11.2-python3.11
+# Switched to the latest stable 2.11.2 release
+FROM apache/airflow:2.11.2-python3.11 AS base
 
 USER root
 
 # 1. System-level dependencies for Weather Data (GRIB/NetCDF)
 RUN apt-get update || (sleep 5 && apt-get update) && \
     apt-get install -y --no-install-recommends \
+    dumb-init \
     libeccodes-dev \
     libeccodes0 \
     libmagic1 \
@@ -22,7 +22,6 @@ RUN apt-get update || (sleep 5 && apt-get update) && \
 RUN echo "airflow ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 USER airflow
-
 # 2. Optimized Python Stack with Strict Constraints
 # We dynamically pull the Airflow and Python versions built into the base image
 # to construct the official constraint URL.
@@ -33,8 +32,8 @@ RUN set -ex \
     && pip install --no-cache-dir \
         "apache-airflow==${AIRFLOW_VERSION}" \
         # Jupyter & UI
-        jupyterlab \
-        plotly dash \
+        # jupyterlab \
+        # plotly dash \
         # Weather & Science Stack
         ecmwf-opendata \
         xarray \
@@ -43,7 +42,7 @@ RUN set -ex \
         netCDF4 \
         eccodes \
         # Azure & AWS Data Lake Storage
-        azure-storage-file-datalake adlfs \
+        # azure-storage-file-datalake adlfs \
         boto3 \
         # Data Engineering & Formats
         duckdb>=1.0.0 \
@@ -52,15 +51,88 @@ RUN set -ex \
         pandas \
         python-magic \
         # Database Connectors
-        oracledb>=2.0.0 \
+        # oracledb>=2.0.0 \
         apache-airflow-providers-amazon \
-        apache-airflow-providers-oracle \
+        # apache-airflow-providers-oracle \
         snowflake-connector-python \
         psycopg2-binary \
         sqlalchemy \
         python-dotenv \
         docker \
         --constraint "${CONSTRAINT_URL}"
+
+# --- STEP 2.5: Pre-install DuckDB extensions for the Airflow User ---
+# --- STEP 2.5: Pre-install DuckDB extensions using the Python module ---
+RUN python3 -c "import duckdb; con = duckdb.connect(); con.execute('INSTALL httpfs; INSTALL aws; INSTALL delta;')"
+
+# 3. Configure Jupyter/IPython Startup
+RUN mkdir -p /home/airflow/.ipython/profile_default/startup/
+
+# --- Update this block in your Dockerfile ---
+RUN cat <<EOF > /home/airflow/.ipython/profile_default/startup/00-duckdb-init.py
+import duckdb
+import os
+from IPython import get_ipython
+
+print('🚀 Weather Data Workbench Initializing...')
+
+try:
+    # 1. Initialize the shared connection
+    db_path = '/opt/airflow/data/physical_meteor_db.duckdb'
+    con = duckdb.connect(db_path, read_only=False) if os.access('/opt/airflow/data', os.W_OK) else duckdb.connect(':memory:')
+
+    # 2. Load the glue
+    con.execute("LOAD httpfs; LOAD aws; LOAD delta;")
+
+    # 3. "Invisible" Authentication
+    # We pull from the Docker environment variables and inject them into a DuckDB secret.
+    # We do NOT use 'PROVIDER ENV' because it is buggy in some 2026 builds; 
+    # Manual injection here is safer and invisible to the user.
+    key_id = os.environ.get('AWS_ACCESS_KEY_ID')
+    secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    region = os.environ.get('AWS_REGION', 'us-east-1')
+
+    if key_id and secret_key:
+        con.execute(f"""
+            CREATE OR REPLACE SECRET oci_s3 (
+                TYPE S3,
+                KEY_ID '{key_id}',
+                SECRET '{secret_key}',
+                REGION '{region}'
+            );
+        """)
+        print('✅ S3/Delta Lake Authenticated (via Docker Env)')
+
+    # 4. Bind the %sql magic
+    ipy = get_ipython()
+    if ipy:
+        ipy.run_line_magic('load_ext', 'sql')
+        ipy.run_line_magic('sql', 'con')
+        ipy.run_line_magic('config', 'SqlMagic.autopandas = True')
+        ipy.run_line_magic('config', 'SqlMagic.feedback = False')
+        print('📊 SQL Magic tethered to authenticated session.')
+
+except Exception as e:
+    print(f'⚠️ Startup Script Error: {e}')
+EOF
+
+# 4. Set the Entrypoint to use dumb-init
+# The Official Airflow image has this at /usr/bin/dumb-init
+ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]
+
+# --- TARGET 1: jupyter-developer-env ---
+FROM base AS jupyter-developer-env
+RUN pip install --no-cache-dir jupyterlab jupysql duckdb-engine plotly dash
+# Using bash -c to expand the password at runtime
+# Create these once during build so they are ready at runtime
+RUN mkdir -p /home/airflow/.local /home/airflow/.jupyter
+
+CMD ["bash", "-c", "jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir=/opt/airflow --ServerApp.password=${JUPYTER_PASS_HASH}"]
+
+# --- TARGET 2: airflow-worker ---
+FROM base AS airflow-base
+# Clean environment for production tasks
+CMD ["bash"]
 
 # COPY requirements.txt .
 # RUN pip install --no-cache-dir -r requirements.txt
