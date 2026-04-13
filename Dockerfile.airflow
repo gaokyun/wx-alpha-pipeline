@@ -136,13 +136,6 @@ try:
         """)
         print(f'✅ OCI S3 Authenticated (Scoped to oci-s3-ykg-storage)')
         
-        # 2. Set Global Overrides (Ensures delta_scan doesn't default to AWS)
-        con.execute(f"SET s3_endpoint = '{clean_endpoint}';")
-        con.execute("SET s3_url_style = 'path';")
-        con.execute(f"SET s3_region = '{oci_region}';")
-        
-        print(f'✅ OCI Authenticated (Endpoint: {clean_endpoint})')
-
     # 5. Bind the %sql magic
     # 2. Tether to JupySQL
     ipy = get_ipython()
