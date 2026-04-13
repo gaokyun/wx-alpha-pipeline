@@ -68,7 +68,7 @@ RUN python3 -c "import duckdb; con = duckdb.connect(); con.execute('INSTALL http
 # 3. Configure Jupyter/IPython Startup
 RUN mkdir -p /home/airflow/.ipython/profile_default/startup/
 
-# --- Update this block in your Dockerfile ---
+# --- Updated block in your Dockerfile ---
 RUN cat <<EOF > /home/airflow/.ipython/profile_default/startup/00-duckdb-init.py
 import duckdb
 import os
@@ -77,40 +77,83 @@ from IPython import get_ipython
 print('🚀 Weather Data Workbench Initializing...')
 
 try:
-    # 1. Initialize the shared connection
-    db_path = '/opt/airflow/data/physical_meteor_db.duckdb'
-    con = duckdb.connect(db_path, read_only=False) if os.access('/opt/airflow/data', os.W_OK) else duckdb.connect(':memory:')
+    # 1. Start with an IN-MEMORY connection
+    con = duckdb.connect(':memory:')
 
-    # 2. Load the glue
+    # 2. Attach the Production DB as a named satellite (Read-Only)
+    prod_path = '/opt/airflow/data/physical_meteor_db.duckdb'
+    if os.path.exists(prod_path):
+        con.execute(f"ATTACH '{prod_path}' AS prod (READ_ONLY)")
+        print(f'✅ Attached Production (Read-Only): {prod_path}')
+
+    # 3. Load extensions
     con.execute("LOAD httpfs; LOAD aws; LOAD delta;")
 
-    # 3. "Invisible" Authentication
-    # We pull from the Docker environment variables and inject them into a DuckDB secret.
-    # We do NOT use 'PROVIDER ENV' because it is buggy in some 2026 builds; 
-    # Manual injection here is safer and invisible to the user.
-    key_id = os.environ.get('AWS_ACCESS_KEY_ID')
-    secret_key = os.environ.get('AWS_SECRET_ACCESS_KEY')
-    region = os.environ.get('AWS_REGION', 'us-east-1')
+    # --- AWS Configuration ---
+    aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
+    aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
+    aws_region = os.environ.get('AWS_REGION', 'us-east-1')
 
-    if key_id and secret_key:
+    if aws_key and aws_secret:
+        con.execute(f"""
+            CREATE OR REPLACE SECRET aws_s3 (
+                TYPE S3,
+                KEY_ID '{aws_key}',
+                SECRET '{aws_secret}',
+                REGION '{aws_region}',
+                SCOPE 's3://amzn-s3-ykg-storage'
+            );
+        """)
+        print('✅ AWS S3 Authenticated (Scoped to amzn-s3-ykg-storage)')
+
+    # --- OCI S3-Compatible Configuration (Validated via Boto3) ---
+    # Supports both your direct and injected variable names
+    oci_key = os.environ.get('OCI_OBJECT_STORAGE_ACCESS_KEY') or os.environ.get('OCI_ACCESS_KEY')
+    oci_secret = os.environ.get('OCI_OBJECT_STORAGE_SECRET_KEY') or os.environ.get('OCI_SECRET_KEY')
+    oci_region = os.environ.get('OCI_REGION')
+    oci_ns = os.environ.get('OCI_OBJECT_STORAGE_NAMESPACE') or os.environ.get('OCI_NAMESPACE')
+    
+    # Clean the endpoint: strip protocol (https://) which DuckDB dislikes
+    raw_endpoint = os.environ.get('OCI_ENDPOINT_URL') or os.environ.get('OCI_API_ENDPOINT')
+    if not raw_endpoint and oci_ns:
+        raw_endpoint = f"{oci_ns}.compat.objectstorage.{oci_region}.oraclecloud.com"
+    
+    if oci_key and oci_secret and raw_endpoint:
+        clean_endpoint = raw_endpoint.replace("https://", "").replace("http://", "").strip("/")
+        
+        # 1. Create the secret for the Delta Kernel
         con.execute(f"""
             CREATE OR REPLACE SECRET oci_s3 (
                 TYPE S3,
-                KEY_ID '{key_id}',
-                SECRET '{secret_key}',
-                REGION '{region}'
+                KEY_ID '{oci_key}',
+                SECRET '{oci_secret}',
+                REGION '{oci_region}',
+                ENDPOINT '{clean_endpoint}',
+                URL_STYLE 'path',
+                USE_SSL 'true',
+                SCOPE 's3://oci-s3-ykg-storage'
             );
         """)
-        print('✅ S3/Delta Lake Authenticated (via Docker Env)')
+        print(f'✅ OCI S3 Authenticated (Scoped to oci-s3-ykg-storage)')
+        
+        # 2. Set Global Overrides (Ensures delta_scan doesn't default to AWS)
+        con.execute(f"SET s3_endpoint = '{clean_endpoint}';")
+        con.execute("SET s3_url_style = 'path';")
+        con.execute(f"SET s3_region = '{oci_region}';")
+        
+        print(f'✅ OCI Authenticated (Endpoint: {clean_endpoint})')
 
-    # 4. Bind the %sql magic
+    # 5. Bind the %sql magic
+    # 2. Tether to JupySQL
     ipy = get_ipython()
     if ipy:
-        ipy.run_line_magic('load_ext', 'sql')
+        if 'sql' not in ipy.extension_manager.loaded:
+            ipy.run_line_magic('load_ext', 'sql')
         ipy.run_line_magic('sql', 'con')
         ipy.run_line_magic('config', 'SqlMagic.autopandas = True')
         ipy.run_line_magic('config', 'SqlMagic.feedback = False')
-        print('📊 SQL Magic tethered to authenticated session.')
+        ipy.run_line_magic('config', 'SqlMagic.displaycon = True')
+        print('📊 SQL Magic tethered. Routing active for AWS and OCI.')
 
 except Exception as e:
     print(f'⚠️ Startup Script Error: {e}')
@@ -122,7 +165,7 @@ ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]
 
 # --- TARGET 1: jupyter-developer-env ---
 FROM base AS jupyter-developer-env
-RUN pip install --no-cache-dir jupyterlab jupysql duckdb-engine plotly dash
+RUN pip install --no-cache-dir jupyterlab jupysql duckdb-engine plotly dash oci boto3
 # Using bash -c to expand the password at runtime
 # Create these once during build so they are ready at runtime
 RUN mkdir -p /home/airflow/.local /home/airflow/.jupyter
