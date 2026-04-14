@@ -45,7 +45,8 @@ RUN set -ex \
         # azure-storage-file-datalake adlfs \
         boto3 \
         # Data Engineering & Formats
-        duckdb>=1.0.0 \
+        duckdb \
+        dbt-core dbt-duckdb \
         pyarrow \
         deltalake \
         pandas \
@@ -74,100 +75,73 @@ import duckdb
 import os
 from IPython import get_ipython
 
-print('🚀 Weather Data Workbench Initializing...')
-
 try:
-    # 1. Start with an IN-MEMORY connection
     con = duckdb.connect(':memory:')
-
-    # 2. Attach the Production DB as a named satellite (Read-Only)
-    prod_path = '/opt/airflow/data/physical_meteor_db.duckdb'
-    if os.path.exists(prod_path):
-        con.execute(f"ATTACH '{prod_path}' AS prod (READ_ONLY)")
-        print(f'✅ Attached Production (Read-Only): {prod_path}')
-
-    # 3. Load extensions
     con.execute("LOAD httpfs; LOAD aws; LOAD delta;")
+    # db_path = os.environ.get('DUCKDB_PATH', '/opt/airflow/data/physical_meteor_db.duckdb')
+    # con = duckdb.connect(db_path)
 
-    # --- AWS Configuration ---
-    aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
-    aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
-    aws_region = os.environ.get('AWS_REGION', 'us-east-1')
-
-    if aws_key and aws_secret:
-        con.execute(f"""
-            CREATE OR REPLACE SECRET aws_s3 (
-                TYPE S3,
-                KEY_ID '{aws_key}',
-                SECRET '{aws_secret}',
-                REGION '{aws_region}',
-                SCOPE 's3://amzn-s3-ykg-storage'
-            );
-        """)
-        print('✅ AWS S3 Authenticated (Scoped to amzn-s3-ykg-storage)')
-
-    # --- OCI S3-Compatible Configuration (Validated via Boto3) ---
-    # Supports both your direct and injected variable names
+    # --- 1. MAIN CONNECTION: OCI (Global Scope) ---
     oci_key = os.environ.get('OCI_OBJECT_STORAGE_ACCESS_KEY') or os.environ.get('OCI_ACCESS_KEY')
     oci_secret = os.environ.get('OCI_OBJECT_STORAGE_SECRET_KEY') or os.environ.get('OCI_SECRET_KEY')
-    oci_region = os.environ.get('OCI_REGION')
     oci_ns = os.environ.get('OCI_OBJECT_STORAGE_NAMESPACE') or os.environ.get('OCI_NAMESPACE')
+    oci_reg = os.environ.get('OCI_REGION')
+    raw_ep = os.environ.get('OCI_ENDPOINT_URL') or f"{oci_ns}.compat.objectstorage.{oci_reg}.oraclecloud.com"
     
-    # Clean the endpoint: strip protocol (https://) which DuckDB dislikes
-    raw_endpoint = os.environ.get('OCI_ENDPOINT_URL') or os.environ.get('OCI_API_ENDPOINT')
-    if not raw_endpoint and oci_ns:
-        raw_endpoint = f"{oci_ns}.compat.objectstorage.{oci_region}.oraclecloud.com"
-    
-    if oci_key and oci_secret and raw_endpoint:
-        clean_endpoint = raw_endpoint.replace("https://", "").replace("http://", "").strip("/")
-        
-        # 1. Create the secret for the Delta Kernel
+    if oci_key and oci_secret and oci_ns:
+        clean_ep = raw_ep.replace("https://", "").replace("http://", "").strip("/")
+        # SCOPE 's3://' makes this the default for EVERYTHING
         con.execute(f"""
-            CREATE OR REPLACE SECRET oci_s3 (
-                TYPE S3,
-                KEY_ID '{oci_key}',
-                SECRET '{oci_secret}',
-                REGION '{oci_region}',
-                ENDPOINT '{clean_endpoint}',
-                URL_STYLE 'path',
-                USE_SSL 'true',
-                SCOPE 's3://oci-s3-ykg-storage'
+            CREATE OR REPLACE SECRET oci_main (
+                TYPE S3, KEY_ID '{oci_key}', SECRET '{oci_secret}',
+                REGION '{oci_reg}', ENDPOINT '{clean_ep}',
+                URL_STYLE 'path', USE_SSL 'true', SCOPE 's3://'
             );
         """)
-        print(f'✅ OCI S3 Authenticated (Scoped to oci-s3-ykg-storage)')
-        
-    # 5. Bind the %sql magic
-    # 2. Tether to JupySQL
+        # Set global session defaults to match OCI behavior
+        con.execute(f"SET s3_endpoint = '{clean_ep}';")
+        con.execute("SET s3_url_style = 'path';")
+        print(f'✅ OCI initialized as MAIN connection.')
+
+    # --- 2. OPTIONAL CONNECTION: AWS (Scoped, Jupyter Only) ---
+    # Only loads if WORKBENCH_MODE is set to 'true'
+    if os.environ.get('WORKBENCH_MODE') == 'true':
+        aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
+        aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
+        if aws_key and aws_secret:
+            con.execute(f"""
+                CREATE OR REPLACE SECRET aws_scoped (
+                    TYPE S3, KEY_ID '{aws_key}', SECRET '{aws_secret}',
+                    REGION '{os.environ.get('AWS_REGION', 'us-east-1')}',
+                    SCOPE 's3://amzn-s3-ykg-storage'
+                );
+            """)
+            print('✅ AWS Scoped connection enabled for Jupyter.')
+
+    # Tether to JupySQL
     ipy = get_ipython()
     if ipy:
-        if 'sql' not in ipy.extension_manager.loaded:
-            ipy.run_line_magic('load_ext', 'sql')
+        if 'sql' not in ipy.extension_manager.loaded: ipy.run_line_magic('load_ext', 'sql')
         ipy.run_line_magic('sql', 'con')
         ipy.run_line_magic('config', 'SqlMagic.autopandas = True')
-        ipy.run_line_magic('config', 'SqlMagic.feedback = False')
         ipy.run_line_magic('config', 'SqlMagic.displaycon = True')
-        print('📊 SQL Magic tethered. Routing active for AWS and OCI.')
 
 except Exception as e:
-    print(f'⚠️ Startup Script Error: {e}')
+    print(f'⚠️ Startup Error: {e}')
 EOF
 
-# 4. Set the Entrypoint to use dumb-init
-# The Official Airflow image has this at /usr/bin/dumb-init
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]
 
 # --- TARGET 1: jupyter-developer-env ---
 FROM base AS jupyter-developer-env
-RUN pip install --no-cache-dir jupyterlab jupysql duckdb-engine plotly dash oci boto3
-# Using bash -c to expand the password at runtime
-# Create these once during build so they are ready at runtime
-RUN mkdir -p /home/airflow/.local /home/airflow/.jupyter
-
+# This flag enables the AWS secret in the startup script
+ENV WORKBENCH_MODE=true
+RUN pip install --no-cache-dir jupyterlab jupysql oci boto3
 CMD ["bash", "-c", "jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir=/opt/airflow --ServerApp.password=${JUPYTER_PASS_HASH}"]
 
 # --- TARGET 2: airflow-worker ---
 FROM base AS airflow-base
-# Clean environment for production tasks
+# WORKBENCH_MODE is not set here, so AWS secrets will NEVER load
 CMD ["bash"]
 
 # COPY requirements.txt .

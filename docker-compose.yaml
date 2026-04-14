@@ -141,7 +141,7 @@ services:
   dbt-duckdb:
     build:
       context: . 
-      dockerfile: Dockerfile.dbt-duckdb  # Make sure to create this Dockerfile!
+      dockerfile: Dockerfile.dbt-duckdb
     image: dbt-duckdb:latest
     container_name: dbt-duckdb-runner
     working_dir: /usr/app/physical_meteor
@@ -151,15 +151,27 @@ services:
       - DBT_LOG_PATH=/tmp/dbt/logs
       - DBT_TARGET_PATH=/tmp/dbt/target
       
-      # AWS credentials for DuckDB to read the S3 Delta Lake
-      - AWS_EC2_METADATA_DISABLED=true  # <--- ADD THIS
+      # --- OCI Credentials (Primary) ---
+      - OCI_ACCESS_KEY=${OCI_OBJECT_STORAGE_ACCESS_KEY}
+      - OCI_SECRET_KEY=${OCI_OBJECT_STORAGE_SECRET_KEY}
+      - OCI_REGION=${OCI_REGION}
+      - OCI_NAMESPACE=${OCI_OBJECT_STORAGE_NAMESPACE}
+      - OCI_ENDPOINT_URL=${OCI_ENDPOINT_URL}
+      
+      # --- AWS Credentials (Scoped) ---
+      - AWS_EC2_METADATA_DISABLED=true 
       - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
       - AWS_REGION=${AWS_REGION}
+
+      # --- Logic Toggle ---
+      # Set to 'true' if dbt needs to pull raw data from AWS S3
+      # Set to 'false' to restrict dbt to OCI only
+      - WORKBENCH_MODE=true
       
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw 
-      # DuckDB requires the runner to physically access the database file
+      # Ensures dbt can write to the physical DuckDB file on your 200GB OCI volume
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data:rw 
       - ${AIRFLOW_PROJ_DIR:-.}/dbt/physical_meteor/profiles.yml:/root/.dbt/profiles.yml
     
