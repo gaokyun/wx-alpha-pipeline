@@ -136,47 +136,6 @@ services:
       retries: 50
       start_period: 30s
     restart: always
-  
-  # --- NEW: DBT DUCKDB RUNNER ---
-  dbt-duckdb:
-    build:
-      context: . 
-      dockerfile: Dockerfile.dbt-duckdb
-    image: dbt-duckdb:latest
-    container_name: dbt-duckdb-runner
-    working_dir: /usr/app/physical_meteor
-    env_file:
-      - .env 
-    environment:
-      - DBT_LOG_PATH=/tmp/dbt/logs
-      - DBT_TARGET_PATH=/tmp/dbt/target
-      
-      # --- OCI Credentials (Primary) ---
-      - OCI_ACCESS_KEY=${OCI_OBJECT_STORAGE_ACCESS_KEY}
-      - OCI_SECRET_KEY=${OCI_OBJECT_STORAGE_SECRET_KEY}
-      - OCI_REGION=${OCI_REGION}
-      - OCI_NAMESPACE=${OCI_OBJECT_STORAGE_NAMESPACE}
-      - OCI_ENDPOINT_URL=${OCI_ENDPOINT_URL}
-      
-      # --- AWS Credentials (Scoped) ---
-      - AWS_EC2_METADATA_DISABLED=true 
-      - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
-      - AWS_REGION=${AWS_REGION}
-
-      # --- Logic Toggle ---
-      # Set to 'true' if dbt needs to pull raw data from AWS S3
-      # Set to 'false' to restrict dbt to OCI only
-      - WORKBENCH_MODE=true
-      
-    volumes:
-      - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw 
-      # Ensures dbt can write to the physical DuckDB file on your 200GB OCI volume
-      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data:rw 
-      - ${AIRFLOW_PROJ_DIR:-.}/dbt/physical_meteor/profiles.yml:/root/.dbt/profiles.yml
-    
-    entrypoint: ["bash", "-c", "sleep infinity"]
-    restart: "no"
 
   dbt-postgres:
     build:
@@ -378,6 +337,7 @@ services:
       <<: *airflow-common-env
       DUMB_INIT_SETSID: "0"
       AIRFLOW__LOGGING__SERVER_LOG_URL: "http://airflow-worker:8793/log"
+      WORKBENCH_MODE: "true"
       
     restart: always
     volumes:
@@ -385,9 +345,10 @@ services:
       - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
       - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
       - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data  # <-- NEW: DuckDB volume for worker
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data:rw  # <-- NEW: DuckDB volume for worker
       - ${AIRFLOW_PROJ_DIR:-.}/physical_meteor:/opt/airflow/physical_meteor  # <-- NEW: DuckDB volume for worker
       - /var/run/docker.sock:/var/run/docker.sock
+
     depends_on:
       <<: *airflow-common-depends-on
       airflow-webserver:

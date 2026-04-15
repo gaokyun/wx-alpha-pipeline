@@ -16,7 +16,7 @@ physical_meteor:
       # ❌ REMOVE the 'settings' block entirely
       # ✅ KEEP the settings block for engine-level behavior
       settings:
-        s3_use_instance_profile: false
+        # s3_use_instance_profile: false
         s3_region: "{{ env_var('AWS_REGION') }}"
 
       # ✅ ADD the 'secrets' block
@@ -44,9 +44,10 @@ physical_meteor:
     dev_postgres:
       type: postgres
       host: postgres
-      user: airflow
+      user: "{{ env_var('POSTGRES_USER') }}"
       password: "{{ env_var('POSTGRES_PASS') }}"
       port: 5432
       dbname: PHYSICAL_METEOR_DB
       schema: RAW
       threads: 4
+      

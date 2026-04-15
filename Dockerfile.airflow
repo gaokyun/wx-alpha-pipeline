@@ -46,7 +46,6 @@ RUN set -ex \
         boto3 \
         # Data Engineering & Formats
         duckdb \
-        dbt-core dbt-duckdb \
         pyarrow \
         deltalake \
         pandas \
@@ -60,7 +59,12 @@ RUN set -ex \
         sqlalchemy \
         python-dotenv \
         docker \
-        --constraint "${CONSTRAINT_URL}"
+        --constraint "${CONSTRAINT_URL}" \
+
+    # --- STEP 2B: Install dbt WITHOUT constraints ---
+    # This allows pip to slightly adjust protobuf/pathspec to satisfy dbt 
+    # without failing the entire build process.
+    && pip install --no-cache-dir dbt-core dbt-duckdb dbt-postgres       
 
 # --- STEP 2.5: Pre-install DuckDB extensions for the Airflow User ---
 # --- STEP 2.5: Pre-install DuckDB extensions using the Python module ---
