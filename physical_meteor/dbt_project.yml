@@ -19,31 +19,40 @@ clean-targets:         # directories to be removed by `dbt clean`
   - "dbt_packages"
 
 # dbt_project.yml
-
 on-run-start:
-  - |
-    INSTALL httpfs; LOAD httpfs;
-    INSTALL aws; LOAD aws;
-    INSTALL delta; LOAD delta;
-    CREATE OR REPLACE SECRET oci_main (
-        TYPE S3,
-        KEY_ID '{{ env_var("OCI_ACCESS_KEY") }}',
-        SECRET '{{ env_var("OCI_SECRET_KEY") }}',
-        REGION 'us-ashburn-1',
-        ENDPOINT 'idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com',
-        URL_STYLE 'path',
-        USE_SSL 'true',
-        SCOPE 's3://'
-    );
-    -- 3. Set Global Session Defaults
-    -- These ensure DuckDB's internal S3 client routes correctly to OCI
-    SET s3_endpoint = 'idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com';
-    SET s3_url_style = 'path';
-    SET s3_region = 'us-ashburn-1';
+  # This block will ONLY execute when running against DuckDB
+  - >
+    {% if target.type == 'duckdb' %}
+      INSTALL httpfs; LOAD httpfs;
+      INSTALL aws; LOAD aws;
+      INSTALL delta; LOAD delta;
+      CREATE OR REPLACE SECRET oci_main (
+          TYPE S3,
+          KEY_ID '{{ env_var("OCI_ACCESS_KEY") }}',
+          SECRET '{{ env_var("OCI_SECRET_KEY") }}',
+          REGION 'us-ashburn-1',
+          ENDPOINT 'idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com',
+          URL_STYLE 'path',
+          USE_SSL 'true',
+          SCOPE 's3://'
+      );
+      -- 3. Set Global Session Defaults
+      -- These ensure DuckDB's internal S3 client routes correctly to OCI
+      SET s3_endpoint = 'idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com';
+      SET s3_url_style = 'path';
+      SET s3_region = 'us-ashburn-1';
 
-    -- 4. Senior DE Performance & Stability Tuning
-    SET parquet_metadata_cache = true;
-    -- SET s3_allow_http_fallback = false; -- Prevents the 169.254.169.254 metadata hang
+      -- 4. Senior DE Performance & Stability Tuning
+      SET parquet_metadata_cache = true;
+      -- SET s3_allow_http_fallback = false; -- Prevents the 169.254.169.254 metadata hang
+    {% elif target.type == 'postgres' %}
+      -- Postgres specific setup (No DuckDB commands allowed here!)
+      SELECT 1;
+
+    {% elif target.type == 'snowflake' %}
+      -- Placeholder for your upcoming Snowflake bootstrap
+      SELECT 1;
+    {% endif %}
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models

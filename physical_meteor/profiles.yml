@@ -44,7 +44,7 @@ physical_meteor:
     dev_postgres:
       type: postgres
       host: postgres
-      user: "{{ env_var('POSTGRES_USER') }}"
+      user: "{{ env_var('POSTGRES_USERNAME') }}"
       password: "{{ env_var('POSTGRES_PASS') }}"
       port: 5432
       dbname: PHYSICAL_METEOR_DB

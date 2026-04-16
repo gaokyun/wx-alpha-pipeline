@@ -85,6 +85,11 @@ x-airflow-common:
     OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
     OCI_NAMESPACE: ${OCI_OBJECT_STORAGE_NAMESPACE}
 
+    # ✅ ADD THESE (Must match the keys in your .env file)
+    POSTGRES_USERNAME: ${POSTGRES_USERNAME}
+    POSTGRES_PASS: ${POSTGRES_PASS}
+    POSTGRES_DB: ${POSTGRES_DB}
+
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
