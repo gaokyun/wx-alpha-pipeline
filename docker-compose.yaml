@@ -20,6 +20,9 @@
 x-airflow-common:
   &airflow-common
   image: custom-weather-airflow:latest
+  dns:
+      - 8.8.8.8
+      - 1.1.1.1
   build:  
     context: .
     dockerfile: Dockerfile.airflow
@@ -53,6 +56,8 @@ x-airflow-common:
     AIRFLOW__SCHEDULER__MAX_TIS_PER_QUERY: 16
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
     AIRFLOW__SCHEDULER__SCHEDULER_HEALTH_CHECK_SERVER_PORT: 8974
+    AIRFLOW__SCHEDULER__SCHEDULER_HEALTH_CHECK_THRESHOLD: 240  # 4 minutes
+    AIRFLOW__CORE__KEEPALIVE_ZOMBIE_THRESHOLD: 300            # 5 minutes
 
     # --- External Connections (Snowflake/Postgres) ---
     AIRFLOW_CONN_POSTGRES_DEFAULT: 'postgres://airflow:${POSTGRES_PASS}@postgres:5432/airflow'
@@ -209,6 +214,10 @@ services:
       - /home/airflow/dev/notebooks:/opt/airflow/notebooks
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data # Aligned with common mapping
       - /home/airflow/dev/wx-alpha-pipeline:/opt/airflow/wx-alpha-pipeline
+      # THE CONFIG VAULT (Nested)
+      - /home/airflow/dev/wx-alpha-pipeline/.jupyter/config:/home/airflow/.jupyter
+      # THE DATA VAULT (Nested)
+      - /home/airflow/dev/wx-alpha-pipeline/.jupyter/data/jupyter_ai:/home/airflow/.local/share/jupyter/jupyter_ai
     env_file:
       - .env
     environment:
@@ -227,6 +236,12 @@ services:
       OCI_SECRET_KEY: ${OCI_OBJECT_STORAGE_SECRET_KEY}
       OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
       OCI_NAMESPACE: ${OCI_OBJECT_STORAGE_NAMESPACE}
+
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      OPENAI_API_VERSION: ${OPENAI_API_VERSION}
+      AZURE_OPENAI_DEPLOYMENT_NAME: ${AZURE_OPENAI_DEPLOYMENT_NAME}
+      JUPYTER_AI_CONFIG_PATH: /home/airflow/.jupyter/jupyter_ai_config.json
 
     restart: always
 
@@ -272,7 +287,7 @@ services:
     <<: *airflow-common
     command: webserver
     ports:
-      - "9340:8080"
+      - "0.0.0.0:9340:8080"
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
       interval: 30s
@@ -341,6 +356,7 @@ services:
     environment:
       <<: *airflow-common-env
       DUMB_INIT_SETSID: "0"
+      AWS_EC2_METADATA_DISABLED: "true"
       AIRFLOW__LOGGING__SERVER_LOG_URL: "http://airflow-worker:8793/log"
       WORKBENCH_MODE: "true"
       
@@ -351,7 +367,6 @@ services:
       - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
       - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data:rw  # <-- NEW: DuckDB volume for worker
-      - ${AIRFLOW_PROJ_DIR:-.}/physical_meteor:/opt/airflow/physical_meteor  # <-- NEW: DuckDB volume for worker
       - /var/run/docker.sock:/var/run/docker.sock
 
     depends_on:

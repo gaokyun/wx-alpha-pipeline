@@ -7,6 +7,7 @@ USER root
 RUN apt-get update || (sleep 5 && apt-get update) && \
     apt-get install -y --no-install-recommends \
     dumb-init \
+    git \
     libeccodes-dev \
     libeccodes0 \
     libmagic1 \
@@ -137,10 +138,25 @@ EOF
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]
 
 # --- TARGET 1: jupyter-developer-env ---
+# --- TARGET 1: jupyter-developer-env ---
 FROM base AS jupyter-developer-env
-# This flag enables the AWS secret in the startup script
 ENV WORKBENCH_MODE=true
-RUN pip install --no-cache-dir jupyterlab jupysql oci boto3
+
+# We install the core extension and the OpenAI 'brain'
+RUN pip install --no-cache-dir \
+    jupyterlab \
+    jupysql \
+    oci \
+    boto3 \
+    pydantic-settings \
+    jupyter-ai jupyter-ai-jupyternaut\
+    jupyterlab-git \
+    langchain-openai \
+    openai
+
+# Ensure the extension is enabled (usually automatic in modern JupyterLab)
+RUN jupyter labextension enable jupyter-ai
+
 CMD ["bash", "-c", "jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir=/opt/airflow --ServerApp.password=${JUPYTER_PASS_HASH}"]
 
 # --- TARGET 2: airflow-worker ---

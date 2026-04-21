@@ -1,5 +1,6 @@
 # Secrets & Configs
 .env
+.env/
 .user.yml
 # docker-compose.yaml
 # dockerfile.*
@@ -27,5 +28,6 @@ dbt_packages/
 # IDE & OS
 .idea/
 .vscode/
+.jupyter_config/
 .DS_Store
 Thumbs.db
