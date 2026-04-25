@@ -20,8 +20,8 @@ renamed_and_casted AS (
 
         -- 3. Meteorological 
         -- Spread is the standard deviation across ensemble members
-        CAST(t AS FLOAT) AS temp_spread_k,
-        CAST(z AS FLOAT) / 9.80665 AS geopotential_height_spread_m
+        CAST(t AS FLOAT) AS temp_spread_k
+        --CAST(z AS FLOAT) / 9.80665 AS geopotential_height_spread_m
 
     FROM raw_spread
 )
