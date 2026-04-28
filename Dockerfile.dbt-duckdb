@@ -1,0 +1,57 @@
+# Use a lightweight Python base image. 
+FROM python:3.11-slim
+
+# 1. Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git bash curl unzip && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. Install DuckDB CLI (Architecture-aware)
+# This remains critical for your OCI Always Free ARM instances
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then \
+        DUCKDB_URL="https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-amd64.zip"; \
+    elif [ "$ARCH" = "aarch64" ]; then \
+        DUCKDB_URL="https://github.com/duckdb/duckdb/releases/download/v1.1.3/duckdb_cli-linux-aarch64.zip"; \
+    else \
+        echo "Unsupported architecture: $ARCH" && exit 1; \
+    fi && \
+    curl -L -o duckdb_cli.zip "$DUCKDB_URL" && \
+    unzip duckdb_cli.zip -d /usr/local/bin && \
+    rm duckdb_cli.zip && \
+    chmod +x /usr/local/bin/duckdb
+
+# 3. Pre-install DuckDB extensions during build
+RUN duckdb -c "INSTALL httpfs; INSTALL aws; INSTALL delta;"
+
+# 4. Create the .duckdbrc file for OCI S3-Compatibility
+# We use getenv() so DuckDB pulls your OCI_* variables at runtime.
+RUN echo "LOAD httpfs;" > /root/.duckdbrc && \
+    echo "LOAD aws;" >> /root/.duckdbrc && \
+    echo "LOAD delta;" >> /root/.duckdbrc && \
+    # Mandatory for OCI Object Storage
+    echo "SET s3_url_style='path';" >> /root/.duckdbrc && \
+    # Create the secret using your specific OCI environment variable names
+    echo "CREATE OR REPLACE SECRET oci_s3 (" >> /root/.duckdbrc && \
+    echo "    TYPE S3," >> /root/.duckdbrc && \
+    echo "    KEY_ID getenv('OCI_ACCESS_KEY')," >> /root/.duckdbrc && \
+    echo "    SECRET getenv('OCI_SECRET_KEY')," >> /root/.duckdbrc && \
+    echo "    REGION getenv('OCI_REGION')," >> /root/.duckdbrc && \
+    echo "    ENDPOINT getenv('OCI_ENDPOINT_URL')," >> /root/.duckdbrc && \
+    echo "    URL_STYLE 'path'" >> /root/.duckdbrc && \
+    echo ");" >> /root/.duckdbrc && \
+    echo "SELECT '🧡 OCI Object Storage Connected' as status;" >> /root/.duckdbrc
+
+# 5. Set up dbt and application directories
+RUN mkdir -p /root/.dbt /usr/app/physical_meteor
+WORKDIR /usr/app/physical_meteor
+
+# 6. Install Python dependencies
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
+    "dbt-core>=1.8.0" \
+    "dbt-duckdb>=1.8.0"
+
+CMD ["bash"]

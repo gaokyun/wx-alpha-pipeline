@@ -1,0 +1,15 @@
+# Use the latest stable version
+FROM jupyterhub/jupyterhub:latest
+
+# Install necessary drivers and spawners
+# psycopg2-binary is required for PostgreSQL connectivity via SQLAlchemy
+RUN pip install --no-cache-dir \
+    dockerspawner \
+    psycopg2-binary \
+    jupyterhub-nativeauthenticator
+
+# Copy your configuration into the container
+COPY jupyterhub_config.py /srv/jupyterhub/jupyterhub_config.py
+
+# Ensure JupyterHub runs as root to interact with the Docker socket
+USER root

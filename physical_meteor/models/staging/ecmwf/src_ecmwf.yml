@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: ecmwf_raw
+    description: "Raw ECMWF Delta tables stored in AWS S3"
+    # DuckDB will use this meta tag to dynamically scan the Delta log instead of looking for a physical table
+    meta:
+      external_location: "delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/{name}/')"
+    tables:
+      - name: at_aifs_upper
+        description: "Raw AIFS Upper air data sitting in S3"
+        
+      - name: at_ifs_upper
+        description: "Raw traditional IFS Upper air data sitting in S3"
+        
+      - name: at_aifs_surface
+        description: "Raw AIFS Surface data sitting in S3"
+        
+      - name: at_ifs_surface
+        description: "Raw traditional IFS Surface data sitting in S3"
+        
+      - name: aifs_spread
+        description: "Raw AIFS Spread data sitting in S3"
+        
+      - name: ifs_spread
+        description: "Raw traditional IFS Spread data sitting in S3"

@@ -126,6 +126,7 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
+      - ./jupyterhub_init_db.sql:/docker-entrypoint-initdb.d/init-db.sql # This runs on first boot
     ports:
       - "5432:5432"
     healthcheck:
@@ -186,15 +187,48 @@ services:
     entrypoint: ["bash","-c","sleep infinity"]
     restart: "no"
 
+  jupyterhub:
+    build:
+      context: .
+      dockerfile: Dockerfile.jupyterhub
+    container_name: jupyterhub
+    restart: always
+    # Bridges the container to the host IP
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Persistent named volume for cookie secrets
+      - jupyterhub_data:/srv/jupyterhub/data
+      # NEW: Bind mount the config file for live updates
+      - ./jupyterhub_config.py:/srv/jupyterhub/jupyterhub_config.py
+    environment:
+      - DOCKER_NETWORK_NAME=${COMPOSE_PROJECT_NAME}_default
+      # Mapping Postgres env vars to those used in jupyterhub_config.py
+      - POSTGRES_JH_HOST=${POSTGRES_JH_HOST}
+      - POSTGRES_JH_DB=${POSTGRES_JH_DB}
+      - POSTGRES_JH_USER=${POSTGRES_JH_USER}
+      - POSTGRES_JH_PASSWORD=${POSTGRES_JH_PASSWORD}
+      # Passthrough cloud keys for notebooks spawned by the hub
+      - OCI_ACCESS_KEY=${OCI_OBJECT_STORAGE_ACCESS_KEY}
+      - OCI_SECRET_KEY=${OCI_OBJECT_STORAGE_SECRET_KEY}
+      - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
+    ports:
+      - "8000:8000"
+    networks:
+      - default
+
   jupyterlab:
     build:
       context: .
       dockerfile: Dockerfile.airflow
-      target: jupyter-developer-env  # <--- Tells Docker which branch to use
+      target: jupyter-developer-env
     image: custom-weather-jupyter:latest
     container_name: jupyter-developer-env
-    # Jupyter kernel is being "Killed" without an error message when processing large NetCDF or GRIB files, you might want to add a shm_size
-    shm_size: '2gb'  # <--- Add it right here
+    shm_size: '2gb'
     ulimits:
       nofile:
         soft: 65536
@@ -202,47 +236,37 @@ services:
       nproc:
         soft: 65536
         hard: 65536
-    # command: >
-    #   bash -c 'mkdir -p /home/airflow/.local /home/airflow/.jupyter && 
-    #   jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir="/opt/airflow" --ServerApp.password="$${JUPYTER_PASS_HASH}"'
-      
     working_dir: /opt/airflow
     user: "50000:0"  
     ports:
       - "9330:9330"
     volumes:
       - /home/airflow/dev/notebooks:/opt/airflow/notebooks
-      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data # Aligned with common mapping
+      - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
       - /home/airflow/dev/wx-alpha-pipeline:/opt/airflow/wx-alpha-pipeline
-      # THE CONFIG VAULT (Nested)
       - /home/airflow/dev/wx-alpha-pipeline/.jupyter/config:/home/airflow/.jupyter
-      # THE DATA VAULT (Nested)
       - /home/airflow/dev/wx-alpha-pipeline/.jupyter/data/jupyter_ai:/home/airflow/.local/share/jupyter/jupyter_ai
     env_file:
       - .env
     environment:
-      #<<: *airflow-common-env  # This is a Map
-      JUPYTER_ENABLE_LAB: "yes" # Must also be Map format (no dash, use colon)
+      JUPYTER_ENABLE_LAB: "yes"
       AIRFLOW_UID: "50000"
       AWS_EC2_METADATA_DISABLED: "true"
       AWS_ACCESS_KEY_ID: ${AWS_ACC_KEY}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_KEY}
       AWS_REGION: ${AWS_REGION:-us-east-1}
       JUPYTER_PASS_HASH: ${JUPYTER_PASS_HASH}
-      # Inject OCI Storage Variables
       OCI_BUCKET: ${OCI_OBJECT_STORAGE_BUCKET}
       OCI_REGION: ${OCI_OBJECT_STORAGE_REGION}
       OCI_ACCESS_KEY: ${OCI_OBJECT_STORAGE_ACCESS_KEY}
       OCI_SECRET_KEY: ${OCI_OBJECT_STORAGE_SECRET_KEY}
       OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
       OCI_NAMESPACE: ${OCI_OBJECT_STORAGE_NAMESPACE}
-
       AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY}
       AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
       OPENAI_API_VERSION: ${OPENAI_API_VERSION}
       AZURE_OPENAI_DEPLOYMENT_NAME: ${AZURE_OPENAI_DEPLOYMENT_NAME}
       JUPYTER_AI_CONFIG_PATH: /home/airflow/.jupyter/jupyter_ai_config.json
-
     restart: always
 
   # UI for your DuckDB Weather Warehouse
@@ -524,3 +548,4 @@ services:
 
 volumes:
   postgres-db-volume:
+  jupyterhub_data:

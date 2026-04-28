@@ -19,97 +19,90 @@ RUN apt-get update || (sleep 5 && apt-get update) && \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Allow the airflow user to use sudo (useful for lab debugging)
+# Allow the airflow user to use sudo for debugging
 RUN echo "airflow ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+# --- Permanent Environment Pathing ---
+ENV IPYTHONDIR=/home/airflow/.ipython
+ENV HOME=/home/airflow
+
 USER airflow
-# 2. Optimized Python Stack with Strict Constraints
-# We dynamically pull the Airflow and Python versions built into the base image
-# to construct the official constraint URL.
+
+# 2. Optimized Python Stack
 RUN set -ex \
     && AIRFLOW_VERSION=$(airflow version) \
     && PYTHON_VERSION=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")') \
     && CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt" \
     && pip install --no-cache-dir \
         "apache-airflow==${AIRFLOW_VERSION}" \
-        # Jupyter & UI
-        # jupyterlab \
-        # plotly dash \
-        # Weather & Science Stack
         ecmwf-opendata \
         xarray \
         dask \
         cfgrib \
         netCDF4 \
         eccodes \
-        # Azure & AWS Data Lake Storage
-        # azure-storage-file-datalake adlfs \
         boto3 \
-        # Data Engineering & Formats
         duckdb \
         pyarrow \
         deltalake \
         pandas \
         python-magic \
-        # Database Connectors
-        # oracledb>=2.0.0 \
         apache-airflow-providers-amazon \
-        # apache-airflow-providers-oracle \
         snowflake-connector-python \
         psycopg2-binary \
         sqlalchemy \
         python-dotenv \
         docker \
         --constraint "${CONSTRAINT_URL}" \
+    && pip install --no-cache-dir dbt-core dbt-duckdb dbt-postgres
 
-    # --- STEP 2B: Install dbt WITHOUT constraints ---
-    # This allows pip to slightly adjust protobuf/pathspec to satisfy dbt 
-    # without failing the entire build process.
-    && pip install --no-cache-dir dbt-core dbt-duckdb dbt-postgres       
-
-# --- STEP 2.5: Pre-install DuckDB extensions for the Airflow User ---
-# --- STEP 2.5: Pre-install DuckDB extensions using the Python module ---
+# 2.5 Pre-install DuckDB extensions
 RUN python3 -c "import duckdb; con = duckdb.connect(); con.execute('INSTALL httpfs; INSTALL aws; INSTALL delta;')"
 
 # 3. Configure Jupyter/IPython Startup
-RUN mkdir -p /home/airflow/.ipython/profile_default/startup/
+USER root
 
-# --- Updated block in your Dockerfile ---
-RUN cat <<EOF > /home/airflow/.ipython/profile_default/startup/00-duckdb-init.py
+RUN mkdir -p /home/airflow/.ipython/profile_default/startup/ && \
+    chown -R 50000:0 /home/airflow/.ipython
+
+# CRITICAL: Note the 'EOF' (with quotes) to prevent shell variable expansion
+RUN cat <<'EOF' > /home/airflow/.ipython/profile_default/startup/00-duckdb-init.py
 import duckdb
 import os
 from IPython import get_ipython
 
 try:
     con = duckdb.connect(':memory:')
+    # Use global duckdb module to configure the default session
     con.execute("LOAD httpfs; LOAD aws; LOAD delta;")
-    # db_path = os.environ.get('DUCKDB_PATH', '/opt/airflow/data/physical_meteor_db.duckdb')
-    # con = duckdb.connect(db_path)
 
     # --- 1. MAIN CONNECTION: OCI (Global Scope) ---
-    oci_key = os.environ.get('OCI_OBJECT_STORAGE_ACCESS_KEY') or os.environ.get('OCI_ACCESS_KEY')
-    oci_secret = os.environ.get('OCI_OBJECT_STORAGE_SECRET_KEY') or os.environ.get('OCI_SECRET_KEY')
-    oci_ns = os.environ.get('OCI_OBJECT_STORAGE_NAMESPACE') or os.environ.get('OCI_NAMESPACE')
-    oci_reg = os.environ.get('OCI_REGION')
-    raw_ep = os.environ.get('OCI_ENDPOINT_URL') or f"{oci_ns}.compat.objectstorage.{oci_reg}.oraclecloud.com"
+    oci_key = os.environ.get('OCI_ACCESS_KEY') or os.environ.get('OCI_OBJECT_STORAGE_ACCESS_KEY')
+    oci_secret = os.environ.get('OCI_SECRET_KEY') or os.environ.get('OCI_OBJECT_STORAGE_SECRET_KEY')
+    oci_ns = os.environ.get('OCI_NAMESPACE') or os.environ.get('OCI_OBJECT_STORAGE_NAMESPACE')
+    oci_reg = os.environ.get('OCI_REGION', 'us-ashburn-1')
     
     if oci_key and oci_secret and oci_ns:
-        clean_ep = raw_ep.replace("https://", "").replace("http://", "").strip("/")
-        # SCOPE 's3://' makes this the default for EVERYTHING
+        endpoint = f"{oci_ns}.compat.objectstorage.{oci_reg}.oraclecloud.com"
+        
         con.execute(f"""
             CREATE OR REPLACE SECRET oci_main (
                 TYPE S3, KEY_ID '{oci_key}', SECRET '{oci_secret}',
-                REGION '{oci_reg}', ENDPOINT '{clean_ep}',
+                REGION '{oci_reg}', ENDPOINT '{endpoint}',
                 URL_STYLE 'path', USE_SSL 'true', SCOPE 's3://'
             );
         """)
-        # Set global session defaults to match OCI behavior
-        con.execute(f"SET s3_endpoint = '{clean_ep}';")
+        
+        # Force session settings to prevent AWS metadata lookups (the 169.254 error)
+        con.execute(f"SET s3_endpoint = '{endpoint}';")
         con.execute("SET s3_url_style = 'path';")
-        print(f'✅ OCI initialized as MAIN connection.')
+        con.execute(f"SET s3_region = '{oci_reg}';")
+        # duckdb.execute(f"SET s3_endpoint = '{endpoint}';")
+        # duckdb.execute("SET s3_url_style = 'path';")
+        # duckdb.execute(f"SET s3_region = '{oci_reg}';")
+        print('✅ DuckDB OCI Secret & Global Settings Initialized')
 
-    # --- 2. OPTIONAL CONNECTION: AWS (Scoped, Jupyter Only) ---
-    # Only loads if WORKBENCH_MODE is set to 'true'
+    # --- 2. OPTIONAL CONNECTION: AWS (Scoped) ---
     if os.environ.get('WORKBENCH_MODE') == 'true':
         aws_key = os.environ.get('AWS_ACCESS_KEY_ID')
         aws_secret = os.environ.get('AWS_SECRET_ACCESS_KEY')
@@ -121,48 +114,44 @@ try:
                     SCOPE 's3://amzn-s3-ykg-storage'
                 );
             """)
-            print('✅ AWS Scoped connection enabled for Jupyter.')
+            print('✅ AWS Scoped connection enabled.')
 
-    # Tether to JupySQL
+    # 3. Tether to JupySQL
     ipy = get_ipython()
     if ipy:
-        if 'sql' not in ipy.extension_manager.loaded: ipy.run_line_magic('load_ext', 'sql')
-        ipy.run_line_magic('sql', 'con')
+        if 'sql' not in ipy.extension_manager.loaded: 
+            ipy.run_line_magic('load_ext', 'sql')
+        # Standard bridge to the global DuckDB session
+        ipy.run_line_magic('sql', 'con') 
         ipy.run_line_magic('config', 'SqlMagic.autopandas = True')
-        ipy.run_line_magic('config', 'SqlMagic.displaycon = True')
+        ipy.run_line_magic('config', 'SqlMagic.displaycon = False')
+        print("✅ JupySQL connected to DuckDB")
 
 except Exception as e:
     print(f'⚠️ Startup Error: {e}')
 EOF
 
+RUN chown 50000:0 /home/airflow/.ipython/profile_default/startup/00-duckdb-init.py
+USER 50000
+
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]
 
-# --- TARGET 1: jupyter-developer-env ---
 # --- TARGET 1: jupyter-developer-env ---
 FROM base AS jupyter-developer-env
 ENV WORKBENCH_MODE=true
 
-# We install the core extension and the OpenAI 'brain'
+USER root
+RUN mkdir -p /home/airflow/work && chown -R 50000:0 /home/airflow/work && chmod -R g+w /home/airflow/work 
+USER 50000
+
 RUN pip install --no-cache-dir \
-    jupyterlab \
-    jupysql \
-    oci \
-    boto3 \
-    pydantic-settings \
-    jupyter-ai jupyter-ai-jupyternaut\
-    jupyterlab-git \
-    langchain-openai \
-    openai
+    jupyterhub==5.4.4 jupyterlab jupysql oci boto3 \
+    pydantic-settings jupyter-ai jupyter-ai-jupyternaut \
+    jupyterlab-git langchain-openai openai
 
-# Ensure the extension is enabled (usually automatic in modern JupyterLab)
-RUN jupyter labextension enable jupyter-ai
-
-CMD ["bash", "-c", "jupyter lab --ip=0.0.0.0 --port=9330 --no-browser --ServerApp.root_dir=/opt/airflow --ServerApp.password=${JUPYTER_PASS_HASH}"]
+# Hub expects 'jupyterhub-singleuser'
+CMD ["jupyterhub-singleuser", "--ip=0.0.0.0", "--port=8888", "--ServerApp.root_dir=/home/airflow/work"]
 
 # --- TARGET 2: airflow-worker ---
 FROM base AS airflow-base
-# WORKBENCH_MODE is not set here, so AWS secrets will NEVER load
 CMD ["bash"]
-
-# COPY requirements.txt .
-# RUN pip install --no-cache-dir -r requirements.txt
