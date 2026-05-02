@@ -1,12 +1,15 @@
 version: 2
 
 sources:
-  - name: delta_lake
+  - name: gfs_raw
     description: "Raw GFS Delta tables stored in AWS S3"
     # Assuming GFS follows a similar folder structure, but without the 'at_' prefix based on your original file
     # Adjust the S3 path below if your GFS delta tables are structured differently.
     meta:
-      external_location: "delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/{name}/')"
+      external_location: "delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/gfs_raw/{name}/')"
     tables:
-      - name: gfs_raw
+      - name: gfs_upper
         description: "Raw GFS Upper air data sitting in S3"
+
+      - name: gfs_surface
+        description: "Raw GFS Surface data sitting in S3"

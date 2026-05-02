@@ -219,11 +219,8 @@ def extract_to_arrow(ds, target_var):
 # ==============================================================================
 # RAW LAYER: DELTA LAKE ON OCI OBJECT STORAGE
 # ==============================================================================
-
 def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
-    """
-    Idempotent Delta Lake ingestion using Dynamic Partition Overwrite.
-    """
+    """Idempotent Delta Lake ingestion with automatic Schema Evolution."""
     partition_cols = ["forecast_date", "forecast_cycle"]
     
     try:
@@ -232,57 +229,52 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
     except Exception as e:
         if any(k in str(e).lower() for k in ["not a delta table", "not found", "no files"]):
             table_exists = False
-        else:
-            raise e
+        else: raise e
 
     if not table_exists:
-        logger.warning(f"⚠️ Delta table not initialized. Creating vertically partitioned table safely...")
+        logger.warning(f"⚠️ Initializing NEW Delta Table at: {delta_table_path}")
         write_deltalake(
-            delta_table_path, 
-            pa_table, 
-            mode="append",  
-            partition_by=partition_cols,
-            storage_options=storage_options,
+            delta_table_path, pa_table, mode="append",
+            partition_by=partition_cols, storage_options=storage_options,
             configuration={
                 "delta.logRetentionDuration": "interval 3 days",
-                "delta.checkpointInterval": "5"                  
+                "delta.checkpointInterval": "5",
+                "delta.isolationLevel": "SnapshotIsolation"
             }
         )
         return
 
-    schema_obj = dt.schema() if callable(dt.schema) else dt.schema
+    # --- SCHEMA LOGIC ---
+    target_pa_schema = dt.to_pyarrow_dataset().schema
+    target_cols = set(target_pa_schema.names)
+    source_cols = set(pa_table.column_names)
     
-    target_pa_schema = None
-    if hasattr(schema_obj, "to_pyarrow"):
-        target_pa_schema = schema_obj.to_pyarrow()
-    elif hasattr(schema_obj, "to_arrow"):
-        target_pa_schema = schema_obj.to_arrow()
+    evolve_schema = False # Flag to trigger schema merge
 
-    if target_pa_schema:
-        target_cols = target_pa_schema.names
+    if target_cols != source_cols:
+        extra_in_batch = source_cols - target_cols
+        missing_in_batch = target_cols - source_cols
         
-        for field in target_pa_schema:
-            col_name = field.name
-            target_type = field.type
-            
-            if not isinstance(target_type, pa.DataType):
-                continue
-            
-            if col_name in pa_table.column_names:
-                source_type = pa_table.schema.field(col_name).type
-                if source_type != target_type:
-                    pa_table = pa_table.set_column(
-                        pa_table.schema.get_field_index(col_name),
-                        col_name,
-                        pc.cast(pa_table[col_name], target_type)
-                    )
-                    
-        source_cols = pa_table.column_names
-        if set(target_cols) == set(source_cols) and target_cols != source_cols:
-            pa_table = pa_table.select(target_cols)
-        elif set(target_cols) != set(source_cols):
-            raise ValueError("Schema mismatch detected. Halting to prevent data corruption.")
+        # --- CHANGE 1: Handle Extra Columns (Schema Evolution) ---
+        if extra_in_batch:
+            logger.warning(f"✨ Schema Evolution Detected: Adding columns {extra_in_batch}")
+            evolve_schema = True 
+        
+        # Handle missing columns by padding with nulls (keep existing functionality)
+        if missing_in_batch:
+            logger.info("ℹ️ Padding missing columns with nulls to match Delta schema...")
+            for col in missing_in_batch:
+                null_arr = pa.array([None] * pa_table.num_rows, type=target_pa_schema.field(col).type)
+                pa_table = pa_table.append_column(col, null_arr)
+            source_cols = set(pa_table.column_names)
 
+    # --- CHANGE 2: Dynamic Column Selection ---
+    # We no longer strictly select target_pa_schema.names because that would drop the new 'gh' column.
+    # Instead, we ensure all existing target columns are present (padded above) and include new ones.
+    all_final_cols = list(target_pa_schema.names) + list(source_cols - target_cols)
+    pa_table = pa_table.select(all_final_cols)
+
+    # --- EXECUTION: Partition Management ---
     unique_dates = pa_table["forecast_date"].unique().to_pylist()
     unique_cycles = pa_table["forecast_cycle"].unique().to_pylist()
 
@@ -291,29 +283,32 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
     
     delete_predicate = f"forecast_date IN ({date_list}) AND CAST(forecast_cycle AS BIGINT) IN ({cycle_list})"
 
-    logger.info(f"♻️ Executing Explicit Partition Wipe: {delete_predicate}")
+    logger.info(f"♻️ Executing Partition Wipe for Date(s) {unique_dates} and Cycle(s) {unique_cycles}")
     
     try:
         dt.delete(delete_predicate)
     except Exception as e:
-        logger.warning(f"⚠️ Partition wipe skipped/failed (it might already be empty): {e}")
+        logger.warning(f"⚠️ Delete predicate failed: {e}")
 
-    logger.info(f"✅ Appending fresh batch to Delta Lake...")
+    # --- CHANGE 3: Write with schema_mode="merge" if evolution is needed ---
+    logger.info(f"✅ Appending {pa_table.num_rows} rows to Delta Lake...")
     write_deltalake(
         delta_table_path,
         pa_table,
         mode="append",
         partition_by=partition_cols,
-        storage_options=storage_options
+        storage_options=storage_options,
+        schema_mode="merge" if evolve_schema else None # Critical for fixing the error
     )
     
+    # --- STORAGE MAINTENANCE ---
     try:
-        logger.info(f"🧹 Vacuuming old, tombstoned files from Object Storage...")
+        logger.info(f"🧹 Vacuuming tombstoned files...")
         dt_clean = DeltaTable(delta_table_path, storage_options=storage_options)
         deleted_files = dt_clean.vacuum(retention_hours=0, enforce_retention_duration=False, dry_run=False)
-        logger.info(f"✨ Storage clean! Physically deleted: {len(deleted_files)} files.")
+        logger.info(f"✨ Storage cleaned. Physically deleted: {len(deleted_files)} files.")
     except Exception as e:
-        logger.warning(f"⚠️ Vacuum failed: {e}")
+        logger.warning(f"⚠️ Vacuum failed (non-critical): {e}")
 
 # ==============================================================================
 # DUCKDB WAREHOUSE ENGINE (SILVER & GOLD)
@@ -390,7 +385,7 @@ def build_duckdb_silver_layer(dataset_name: str, delta_oci_path: str):
 # DATA EXTRACTORS
 # ==============================================================================
 
-def download_gfs_robust(date_obj, cycle, steps):
+def download_gfs_robust(date_obj, cycle, steps, task_type='upper'):
     """GFS Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake on OCI Object Storage)"""
     
     if not isinstance(steps, (list, tuple)):
@@ -398,6 +393,7 @@ def download_gfs_robust(date_obj, cycle, steps):
         
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}"
+    model_name = "GFS"
     
     temp_dir = os.path.join(weather_config.BASE_DIR, "Data", "Temp_GFS_Buffer")
     os.makedirs(temp_dir, exist_ok=True)
@@ -406,40 +402,57 @@ def download_gfs_robust(date_obj, cycle, steps):
     master_pk_cols = None
     all_success = True
     
+    # DYNAMICALLY BUILD REQUEST MATRIX BASED ON TASK TYPE
+    target_strings = []
+    gfs_upper_vars = []
+    
+    if task_type == 'upper':
+        gfs_upper_vars = [v["gfs"].split(":")[1] for k, v in METEO_REGISTRY["upper"].items()]
+        for var in gfs_upper_vars:
+            for lvl in ["250 mb", "500 mb", "850 mb"]:
+                target_strings.append(f":{var}:{lvl}:")
+    elif task_type == 'surface':
+        target_strings.extend([v["gfs"] for k, v in METEO_REGISTRY["surface"].items()])
+    else:
+        logger.error(f"❌ Unknown task_type: {task_type}")
+        return False
+    
     for step in steps:
-        temp_filename = f"TEMP_gfs_{date_str}_{cycle_str}z_{step}h.grib2"
+        logger.info(f"📥 [EXTRACT] Model: {model_name} | Task: {task_type} | Date: {date_str} | Cycle: {cycle_str}z | Step: +{step}h")
+        
+        temp_filename = f"TEMP_gfs_{task_type}_{date_str}_{cycle_str}z_{step}h.grib2"
         temp_path = os.path.join(temp_dir, temp_filename)
-
         download_success = False
-        # Note: We still download the PUBLIC RAW data from NOAA's AWS S3
+        
         s3_base = f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{date_str}/{cycle_str}/atmos/gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}"
         
+        # --- ATTEMPT S3 RANGE DOWNLOAD ---
         try:
             r_idx = requests.get(s3_base + ".idx", timeout=10)
             if r_idx.status_code == 200:
                 lines = r_idx.text.splitlines()
-                target_vars = [v["gfs"] for k, v in METEO_REGISTRY["upper"].items()] + \
-                              [v["gfs"] for k, v in METEO_REGISTRY["surface"].items()]
-                
                 fcst_marker = f"{int(step)} hour fcst" if step > 0 else "anl"
-                
                 ranges = []
-                for key in target_vars:
+                
+                for key in target_strings:
                     for i, line in enumerate(lines):
-                        if key in line and fcst_marker in line:
+                        # ✅ NECESSARY CHANGE 1: Catch 'acc fcst' for APCP (Precipitation)
+                        if key in line and (fcst_marker in line or (":APCP:" in key and "acc fcst" in line)):
                             parts = line.split(':')
                             start = int(parts[1])
-                            end = int(lines[i+1].split(':')[1])-1 if i+1 < len(lines) else ""
+                            end = int(lines[i+1].split(':')[1]) - 1 if i+1 < len(lines) else ""
                             ranges.append((start, end))
-                            continue
+                            break
                             
                 if len(ranges) > 0: 
                     if _download_s3_range(s3_base, ranges, temp_path):
                         download_success = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"S3 Range logic failed for step {step}: {e}")
 
+        # --- FALLBACK TO NOMADS ---
         if not download_success:
+            logger.info(f"🔄 Falling back to NOMADS for {model_name} step {step}h...")
             nomads_url = "https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
             params = {
                 'file': f'gfs.t{cycle_str}z.pgrb2.0p25.f{str(step).zfill(3)}',
@@ -451,19 +464,20 @@ def download_gfs_robust(date_obj, cycle, steps):
                 'dir': f'/gfs.{date_str}/{cycle_str}/atmos'
             }
             
-            for level_type, vars_dict in METEO_REGISTRY.items():
-                for var_key, var_info in vars_dict.items():
+            if task_type == 'upper':
+                for var in gfs_upper_vars: params[f'var_{var}'] = 'on'
+                for lvl in ['250_mb', '500_mb', '850_mb']: params[f'lev_{lvl}'] = 'on'
+            elif task_type == 'surface':
+                for var_key, var_info in METEO_REGISTRY["surface"].items():
                     gfs_str = var_info['gfs'] 
                     parts = [p for p in gfs_str.split(':') if p]
                     if len(parts) >= 2:
                         var_name = parts[0]
-                        level_name = parts[1].replace(' ', '_')
+                        level_name = parts[1].replace(' ', '_').lower()
                         params[f'var_{var_name}'] = 'on'
-                        if any(k in level_name.lower() for k in ['surface', 'mean_sea_level', 'above_ground']):
+                        if any(k in level_name for k in ['surface', 'mean_sea_level', 'above_ground']):
                             params['lev_surface'] = 'on'
-                            params[f'lev_{level_name}'] = 'on' 
-                        else:
-                            params[f'lev_{level_name}'] = 'on'
+                        params[f'lev_{level_name}'] = 'on' 
 
             try:
                 r = requests.get(nomads_url, params=params, timeout=60)
@@ -471,42 +485,103 @@ def download_gfs_robust(date_obj, cycle, steps):
                     with open(temp_path, 'wb') as f:
                         f.write(r.content)
                     download_success = True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"❌ NOMADS fallback failed: {e}")
 
-        if download_success and os.path.exists(temp_path):
+        # --- PROCESS TO PYARROW ---
+        if download_success and os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
             ds = None
             try:
-                datasets = cfgrib.open_datasets(temp_path, backend_kwargs={'indexpath': '', 'filter_by_keys': {'typeOfLevel': 'isobaricInhPa'}})
+                # 1. DYNAMIC FILTERING
+                b_kwargs = {'indexpath': ''}
+                if task_type == 'upper':
+                    b_kwargs['filter_by_keys'] = {'typeOfLevel': 'isobaricInhPa'}
+                
+                datasets = cfgrib.open_datasets(temp_path, backend_kwargs=b_kwargs)
                 if not datasets: raise ValueError("No valid grids found in GRIB file.")
                     
                 clean_datasets = []
                 for ds_part in datasets:
                     if 'isobaricInhPa' in ds_part.coords and ds_part['isobaricInhPa'].ndim == 0:
                         ds_part = ds_part.expand_dims('isobaricInhPa')
+                    
+                    if 'step' in ds_part.coords and ds_part['step'].ndim == 0:
+                        ds_part = ds_part.drop_vars('step')
+                        
                     clean_datasets.append(ds_part)
                 
-                ds = xr.merge(clean_datasets) if len(clean_datasets) > 1 else clean_datasets[0]
+                ds = xr.combine_by_coords(clean_datasets, compat='override', combine_attrs='drop_conflicts')
+
+                # NORMALIZE GFS NAMES TO UNIFIED SCHEMA
+                rename_map = {
+                    'prmsl': 'msl',
+                    '2t': 't2m',
+                    't2m': 't2m',
+                    '2d': 'd2m',
+                    'd2m': 'd2m',
+                    'apcp': 'tp'
+                }
+                actual_rename = {k: v for k, v in rename_map.items() if k in ds.data_vars}
+                if actual_rename:
+                    ds = ds.rename(actual_rename)
+
                 ds = _apply_xarray_canonicalization(ds)
-                target_var = 'gh' if 'gh' in ds.data_vars else ('z' if 'z' in ds.data_vars else None)
+                
+                # Re-inject the step coordinate
+                ds = ds.assign_coords(step=np.timedelta64(step, 'h'))
+                
+                # ✅ NECESSARY CHANGE 2: Loud Failure (Strict Validation)
+                mandatory_vars = ['msl', 't2m', 'd2m', 'tp'] if task_type == 'surface' else ['gh', 't', 'u', 'v']
+                missing_vars = [v for v in mandatory_vars if v not in ds.data_vars]
+                if missing_vars:
+                    raise ValueError(f"CRITICAL: Mandatory variables {missing_vars} missing from step {step}h. Failing task.")
+                
+                # DYNAMIC TARGET VAR
+                possible_targets = ['gh', 'z', 'msl', 't2m', 'tp']
+                target_var = next((v for v in possible_targets if v in ds.data_vars), None)
+                
                 pa_table, pk_cols = extract_to_arrow(ds, target_var)
+                
                 arrow_tables.append(pa_table)
                 master_pk_cols = pk_cols
             except Exception as e:
-                logger.error(f"❌ [GFS ETL Error] {e}"); all_success = False
+                logger.error(f"❌ [GFS ETL Error] Step {step}: {e}"); all_success = False
             finally:
                 if ds is not None: ds.close()
                 if os.path.exists(temp_path): os.remove(temp_path)
         else:
+            logger.error(f"❌ Step {step} download failed or file is empty.")
             all_success = False
 
+    # --- UPSERT TO OCI ---
     if arrow_tables and master_pk_cols:
         try:
-            logger.info(f"📦 Batching GFS steps into OCI Delta transaction...")
-            master_table = pa.concat_tables(arrow_tables)
-            delta_table_oci_path = f"s3://{weather_config.OCI_BUCKET}/weather_data/delta_lake/gfs_raw/"
+            logger.info(f"📦 Unifying schemas and batching GFS {task_type} steps...")
             
-            # Storage options configured for OCI S3-Compatibility
+            all_fields = {}
+            for table in arrow_tables:
+                for field in table.schema:
+                    if field.name not in all_fields:
+                        all_fields[field.name] = field.type
+            
+            final_schema = pa.schema([(name, dtype) for name, dtype in all_fields.items()])
+            
+            unified_tables = []
+            for table in arrow_tables:
+                current_table = table
+                # Pad missing columns with nulls
+                for field_name in final_schema.names:
+                    if field_name not in current_table.column_names:
+                        null_array = pa.array([None] * current_table.num_rows, type=final_schema.field(field_name).type)
+                        current_table = current_table.append_column(field_name, null_array)
+                # Ensure column order matches
+                unified_tables.append(current_table.select(final_schema.names))
+
+            master_table = pa.concat_tables(unified_tables)
+            
+            task_name = f"gfs_{task_type}"
+            delta_table_oci_path = f"s3://{weather_config.OCI_BUCKET}/weather_data/delta_lake/gfs_raw/{task_name}/"
+            
             storage_options = {
                 "AWS_ACCESS_KEY_ID": weather_config.OCI_ACCESS_KEY,
                 "AWS_SECRET_ACCESS_KEY": weather_config.OCI_SECRET_KEY,
@@ -515,7 +590,7 @@ def download_gfs_robust(date_obj, cycle, steps):
                 "AWS_S3_ADDRESSING_STYLE": "path"
             }
             upsert_weather_data(master_table, master_pk_cols, delta_table_oci_path, storage_options)
-            build_duckdb_silver_layer("gfs_raw", delta_table_oci_path)
+            build_duckdb_silver_layer(task_name, delta_table_oci_path)
         except Exception as e:
             logger.error(f"❌ Batch Upsert Failed: {e}"); all_success = False
             
@@ -546,8 +621,31 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
         else: return False
 
         if task_type == 'spread':
+            # --- CHANGE 1: Use registry to define params for spread to ensure alignment ---
+            spread_params = []
+            for k in ["gh", "t"]:
+                p = METEO_REGISTRY["upper"][k]["ecmwf"]
+                spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
+            
             task_dict = {"name": f"{model_type.lower()}_spread", "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
-                         "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", "levelist": [500, 850], "param": ['z', 't'], "step": step}}
+                         "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", 
+                                    "levelist": [500, 850], "param": list(set(spread_params)), "step": step}}
+            # ------------------------------------------------------------------------------
+        # if task_type == 'spread':
+        #     task_dict = {
+        #         "name": f"{model_type.lower()}_spread", 
+        #         "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
+        #         "params": {
+        #             "class": "od", 
+        #             "stream": "enfo", 
+        #             "type": "es", 
+        #             "levtype": "pl", 
+        #             "levelist": [250, 500, 850], # Added 250
+        #             "param": ['z', 't', 'u', 'v'], # Added Wind components for 250hPa Jet Spread
+        #             "step": step
+        #         }
+        #     }
+
         elif task_type == 'upper':
             short_names = []
             for p in [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]:
@@ -578,7 +676,16 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
                     clean_datasets.append(ds_part)
                 ds = xr.merge(clean_datasets) if len(clean_datasets) > 1 else clean_datasets[0]
                 ds = _apply_xarray_canonicalization(ds)
-                target_var = 'z' if 'z' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
+
+                # --- CHANGE 2: Canonicalize variable naming (z -> gh) to match Registry keys ---
+                if 'z' in ds.data_vars and 'gh' not in ds.data_vars:
+                    ds = ds.rename({'z': 'gh'})
+                
+                # Update target_var logic to prioritize 'gh' (our registry key)
+                target_var = 'gh' if 'gh' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
+                # target_var = 'z' if 'z' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
+                # ------------------------------------------------------------------------------
+
                 pa_table, pk_cols = extract_to_arrow(ds, target_var)
                 arrow_tables.append(pa_table); master_pk_cols = pk_cols
             except Exception: all_success = False

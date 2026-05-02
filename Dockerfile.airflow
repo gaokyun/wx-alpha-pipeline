@@ -43,6 +43,7 @@ RUN set -ex \
         eccodes \
         boto3 \
         duckdb \
+        polars \
         pyarrow \
         deltalake \
         pandas \
@@ -146,7 +147,8 @@ USER 50000
 
 RUN pip install --no-cache-dir \
     jupyterhub==5.4.4 jupyterlab jupysql oci boto3 \
-    pydantic-settings jupyter-ai jupyter-ai-jupyternaut \
+    pydantic-settings \ 
+    #jupyter-ai jupyter-ai-jupyternaut \
     jupyterlab-git langchain-openai openai
 
 # Hub expects 'jupyterhub-singleuser'

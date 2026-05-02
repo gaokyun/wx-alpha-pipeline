@@ -1,5 +1,8 @@
 WITH raw_spread AS (
     SELECT * FROM {{ source('ecmwf_raw', 'ifs_spread') }}
+        -- Surgical strike: Remove coordinates that are physically impossible
+    WHERE latitude BETWEEN -90 AND 90
+      AND longitude BETWEEN -180 AND 360
 ),
 
 renamed_and_casted AS (
@@ -16,14 +19,29 @@ renamed_and_casted AS (
         -- 2. Spatial
         CAST(latitude AS FLOAT) AS lat,
         CAST(longitude AS FLOAT) AS lon,
+
+        -- Fixed-Point Integer Indices
+        -- Shift by 90/360 to ensure positive values, then scale to remove decimals
+        CAST((latitude + 90) * 100 AS BIGINT) AS lat_i,
+        CAST((longitude + 360) * 100 AS BIGINT) AS lon_i,
+
         CAST(isobaricInhPa AS INTEGER) AS pressure_level_hpa,
 
         -- 3. Meteorological 
         -- Ensuring we pull both Temperature and Geopotential Height spread
-        CAST(t AS FLOAT) AS temp_spread_k
-        --CAST(z AS FLOAT) / 9.80665 AS geopotential_height_spread_m
+        CAST(t AS FLOAT) AS temp_spread_kelvin,
+        (CAST(t AS FLOAT) - 273.15) AS temp_spread_celsius,
+        CAST(z AS FLOAT) / 9.80665 AS geopotential_height_spread_m
 
     FROM raw_spread
 )
 
-SELECT * FROM renamed_and_casted
+SELECT *,
+    MD5(
+        COALESCE(CAST(cycle_date AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(cycle_hour AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(forecast_step_hours AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(lat_i AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(lon_i AS VARCHAR), '')
+    )::VARCHAR AS surrogate_merge_key
+ FROM renamed_and_casted

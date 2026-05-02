@@ -31,3 +31,28 @@ dbt_packages/
 .jupyter_config/
 .DS_Store
 Thumbs.db
+
+# Ignore Python environment and cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+
+# Ignore local data and large weather files (GRIB/NetCDF)
+data/
+*.grib
+*.grib2
+*.nc
+*.parquet
+
+# Ignore the actual config if it contains hardcoded secrets
+# (Or keep it and use the .env method I mentioned previously)
+.env
+*.key
+*.pem
+*.ppk
+
+# Ignore Jupyter internals
+.jupyter/
+.ipynb_checkpoints/

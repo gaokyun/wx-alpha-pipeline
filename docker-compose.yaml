@@ -95,12 +95,15 @@ x-airflow-common:
     POSTGRES_PASS: ${POSTGRES_PASS}
     POSTGRES_DB: ${POSTGRES_DB}
 
+    _PIP_ADDITIONAL_REQUIREMENTS: "urllib3<2.0.0 beautifulsoup4"
+
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data  # <-- NEW: DuckDB Global Volume Mapping
+    - ${AIRFLOW_PROJ_DIR:-.}/physical_meteor:/opt/airflow/physical_meteor  # <-- NEW: dbt Global Volume Mapping
     - /var/run/docker.sock:/var/run/docker.sock
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
@@ -241,8 +244,9 @@ services:
     ports:
       - "9330:9330"
     volumes:
-      - /home/airflow/dev/notebooks:/opt/airflow/notebooks
+      - /home/airflow/dev/notebooks:/home/airflow/work
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
+      - /home/airflow/.ssh:/opt/airflow/.ssh
       - /home/airflow/dev/wx-alpha-pipeline:/opt/airflow/wx-alpha-pipeline
       - /home/airflow/dev/wx-alpha-pipeline/.jupyter/config:/home/airflow/.jupyter
       - /home/airflow/dev/wx-alpha-pipeline/.jupyter/data/jupyter_ai:/home/airflow/.local/share/jupyter/jupyter_ai
@@ -391,6 +395,7 @@ services:
       - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
       - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data:rw  # <-- NEW: DuckDB volume for worker
+      - ${AIRFLOW_PROJ_DIR:-.}/physical_meteor:/opt/airflow/physical_meteor  # <--- Add this
       - /var/run/docker.sock:/var/run/docker.sock
 
     depends_on:

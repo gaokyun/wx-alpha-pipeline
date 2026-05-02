@@ -59,4 +59,18 @@ physical_meteor:
       dbname: PHYSICAL_METEOR_DB
       schema: RAW
       threads: 4
+
+    adw_prod:
+      type: oracle
+      user: admin
+      pass: your_password
+      connection_string: (description=(address=(protocol=tcps)(port=1522)(host=adb.us-ashburn-1.oraclecloud.com))(connect_data=(service_name=xxxx_high.adb.oraclecloud.com))(security=(ssl_server_cert_dn="CN=adwc.us-oraclecloud.com")))
+
+    heatwave_prod:
+      type: mysql
+      host: [heatwave-ip]
+      user: meteor_admin
+      pass: "{{ env_var('POSTGRES_PASS') }}"
+      port: 3306  
+
       

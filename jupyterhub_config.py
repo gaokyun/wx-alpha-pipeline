@@ -67,6 +67,36 @@ notebook_dir = os.environ.get('DOCKER_NOTEBOOK_DIR', '/home/airflow/work')
 c.DockerSpawner.notebook_dir = notebook_dir
 c.DockerSpawner.volumes = { 'jupyterhub-user-{username}': notebook_dir }
 
+c.DockerSpawner.volumes = {
+    # 1. The standard persistent user volume (what you have now)
+    'jupyterhub-user-{username}': notebook_dir,
+
+    # 2. Add your Airflow Bind Mounts here
+    '/home/airflow/dev/notebooks': {
+        'bind': '/opt/airflow/notebooks',
+        'mode': 'rw'
+    },
+    '/home/airflow/dev/wx-alpha-pipeline/data': {
+        'bind': '/opt/airflow/data',
+        'mode': 'rw'
+    },
+    '/home/airflow/.ssh': {
+        'bind': '/opt/airflow/.ssh',
+        'mode': 'ro'
+    }
+}
+
+# Automatically remove containers when they are stopped
+c.DockerSpawner.remove_containers = True
+
+# Ensure the spawner uses the correct network name, not a hardcoded ID
+# Replace 'jupyterhub_network' with the actual name of your docker network
+c.DockerSpawner.network_name = 'wx-alpha-pipeline_default'
+
+# 2. Automatically create the symlinks after the container starts
+# This ensures they always appear in your Jupyter sidebar
+c.DockerSpawner.post_start_cmd = 'bash -c "ln -snf /opt/airflow/notebooks /home/airflow/work/airflow_notebooks && ln -snf /opt/airflow/data /home/airflow/work/airflow_data"'
+
 # --- 5. Authentication ---
 c.JupyterHub.authenticator_class = 'nativeauthenticator.NativeAuthenticator'
 c.Authenticator.admin_users = {'admin'}

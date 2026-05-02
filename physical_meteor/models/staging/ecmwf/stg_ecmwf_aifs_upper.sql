@@ -1,5 +1,8 @@
 WITH raw_source AS (
     SELECT * FROM {{ source('ecmwf_raw', 'at_aifs_upper') }}
+        -- Surgical strike: Remove coordinates that are physically impossible
+    WHERE latitude BETWEEN -90 AND 90
+      AND longitude BETWEEN -180 AND 360
 ),
 
 renamed_and_casted AS (
@@ -16,6 +19,12 @@ renamed_and_casted AS (
         -- 2. Spatial Identifiers
         CAST(latitude AS FLOAT) AS lat,
         CAST(longitude AS FLOAT) AS lon,
+
+        -- Fixed-Point Integer Indices
+        -- Shift by 90/360 to ensure positive values, then scale to remove decimals
+        CAST((latitude + 90) * 100 AS BIGINT) AS lat_i,
+        CAST((longitude + 360) * 100 AS BIGINT) AS lon_i,
+
         CAST(isobaricInhPa AS INTEGER) AS pressure_level_hpa,
 
         -- 3. Meteorological Variables
@@ -30,4 +39,12 @@ renamed_and_casted AS (
     FROM raw_source 
 )
 
-SELECT * FROM renamed_and_casted
+SELECT *,
+    MD5(
+        COALESCE(CAST(cycle_date AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(cycle_hour AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(forecast_step_hours AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(lat_i AS VARCHAR), '') || '|' ||
+        COALESCE(CAST(lon_i AS VARCHAR), '')
+    )::VARCHAR AS surrogate_merge_key
+ FROM renamed_and_casted
