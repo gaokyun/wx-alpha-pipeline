@@ -22,13 +22,13 @@ renamed_and_casted AS (
 
         -- Fixed-Point Integer Indices
         -- Shift by 90/360 to ensure positive values, then scale to remove decimals
-        CAST((latitude + 90) * 100 AS BIGINT) AS lat_i,
-        CAST((longitude + 360) * 100 AS BIGINT) AS lon_i,
+        COALESCE(CAST((latitude + 90) * 100 AS INTEGER), -1) AS lat_i,
+        COALESCE(CAST((longitude + 360) * 100 AS INTEGER), -1) AS lon_i,
 
         CAST(isobaricInhPa AS INTEGER) AS pressure_level_hpa,
 
         -- 3. Meteorological Variables
-        (CAST(z AS FLOAT) / 9.80665) AS geopotential_height_m,
+        CAST(gh AS FLOAT) AS geopotential_height_m,
 
         CAST(t AS FLOAT) AS temp_kelvin,
         (CAST(t AS FLOAT) - 273.15) AS temp_celsius,

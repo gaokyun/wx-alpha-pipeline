@@ -22,8 +22,8 @@ renamed_and_casted AS (
 
         -- Fixed-Point Integer Indices
         -- Shift by 90/360 to ensure positive values, then scale to remove decimals
-        CAST((latitude + 90) * 100 AS BIGINT) AS lat_i,
-        CAST((longitude + 360) * 100 AS BIGINT) AS lon_i,
+        COALESCE(CAST((latitude + 90) * 100 AS INTEGER), -1) AS lat_i,
+        COALESCE(CAST((longitude + 360) * 100 AS INTEGER), -1) AS lon_i,
 
         -- 3. Meteorological Parameters
         -- Temperature and Dewpoint (Converted from Kelvin to Celsius)

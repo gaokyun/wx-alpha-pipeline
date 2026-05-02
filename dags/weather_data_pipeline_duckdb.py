@@ -7,9 +7,12 @@ from bs4 import BeautifulSoup
 from airflow.decorators import dag, task
 from airflow.datasets import Dataset
 from airflow.sensors.python import PythonSensor
+from airflow.operators.bash import BashOperator
 
 # Use the OCI bucket variable to match the new OCI Object Storage architecture
 OCI_BUCKET = os.getenv('OCI_OBJECT_STORAGE_BUCKET', 'oci-s3-ykg-storage')
+# Ensure your path variables are defined so dbt_task can find them
+DBT_PROJECT_PATH = os.getenv('DBT_PROJECT_PATH', '/opt/airflow/physical_meteor')
 
 # ---------------- 0. Concurrency Configuration ----------------
 # Matches the key defined in your config/airflow_pools.json
@@ -234,38 +237,84 @@ def create_weather_dag(model_id, config):
 for model_id, config in WEATHER_MODELS.items():
     globals()[f"dag_transform_{model_id}"] = create_weather_dag(model_id, config)
 
-# ---------------- 7. Unified Forecast Views Refresh ----------------
+# ---------------- 7. Unified Forecast Views Refresh (Refactored) ----------------
 @dag(
-    dag_id='weather_ops.transform.unified_forecast_refresh',
+    dag_id='weather_ops.transform.unified_forecast_refresh_v2',
     default_args=default_args,
     # Triggers once ALL specific datasets (Upper AND Surface) have refreshed
     schedule=[
         ASSETS['gfs-upper'], ASSETS['gfs-surface'],
         ASSETS['aifs-upper'], ASSETS['aifs-surface'],
-        ASSETS['ifs-upper'], ASSETS['ifs-surface']
+        ASSETS['ifs-upper'], ASSETS['ifs-surface'],
+        ASSETS['ifs-spread'], ASSETS['aifs-spread']
     ],
     start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
     catchup=False,
     doc_md="Refreshes the final consensus views for both Upper Air and Surface metrics.",
     tags=['dbt', 'duckdb', 'consensus', 'gold']
 )
-def refresh_unified_forecasts():
-    
-    @task(
-        task_id='dbt_run_unified_views', 
-        pool=DUCKDB_POOL  # ✅ Critical: Prevents lock during concurrent runs
-    )
-    def run_unified_dbt_models():
-        from etl.meteorology_duckdb import run_dbt_duckdb
-        
-        # dbt allows multiple selectors separated by spaces.
-        # The '+' prefix ensures all upstream dependencies are checked/processed if needed.
-        run_dbt_duckdb(
-            command="run", 
-            select_path="+fct_upper_forecast +fct_surface_forecast"
-        )
-    
-    run_unified_dbt_models()
+def refresh_unified_forecasts_v2():
 
-# Register the Unified View DAG
-globals()["dag_unified_forecast_refresh"] = refresh_unified_forecasts()
+    def dbt_task(task_id, select_statement):
+        return BashOperator(
+            task_id=task_id,
+            pool=DUCKDB_POOL,
+            bash_command=f"""
+                dbt run --project-dir {DBT_PROJECT_PATH} \
+                        --profiles-dir {DBT_PROJECT_PATH} \
+                        --target dev_duckdb \
+                        --select {select_statement}
+            """
+        )
+
+    # 1. First, refresh all staging views (fast, low RAM)
+    stg_refresh = dbt_task('refresh_silver_layer', 'tag:staging')
+
+    # 2. Sequential Gold refreshes (one at a time to save RAM)
+    aifs_gold = dbt_task('gold_aifs', 'fct_aifs_upper fct_aifs_surface fct_aifs_spread')
+    ifs_gold = dbt_task('gold_ifs', 'fct_ifs_upper fct_ifs_surface fct_ifs_spread')
+    gfs_gold = dbt_task('gold_gfs', 'fct_gfs_upper fct_gfs_surface')
+
+    # 3. Final Unified Views (only runs after all tables are updated)
+    unified_gold = dbt_task('gold_unified', 'fct_upper_forecast fct_surface_forecast fct_spread_forecast')
+
+    # Define the strict sequence
+    stg_refresh >> gfs_gold >> aifs_gold >> ifs_gold >> unified_gold
+
+refresh_unified_forecasts_v2()
+
+# # ---------------- 7. Unified Forecast Views Refresh ----------------
+# @dag(
+#     dag_id='weather_ops.transform.unified_forecast_refresh',
+#     default_args=default_args,
+#     # Triggers once ALL specific datasets (Upper AND Surface) have refreshed
+#     schedule=[
+#         ASSETS['gfs-upper'], ASSETS['gfs-surface'],
+#         ASSETS['aifs-upper'], ASSETS['aifs-surface'],
+#         ASSETS['ifs-upper'], ASSETS['ifs-surface']
+#     ],
+#     start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
+#     catchup=False,
+#     doc_md="Refreshes the final consensus views for both Upper Air and Surface metrics.",
+#     tags=['dbt', 'duckdb', 'consensus', 'gold']
+# )
+# def refresh_unified_forecasts():
+    
+#     @task(
+#         task_id='dbt_run_unified_views', 
+#         pool=DUCKDB_POOL  # ✅ Critical: Prevents lock during concurrent runs
+#     )
+#     def run_unified_dbt_models():
+#         from etl.meteorology_duckdb import run_dbt_duckdb
+        
+#         # dbt allows multiple selectors separated by spaces.
+#         # The '+' prefix ensures all upstream dependencies are checked/processed if needed.
+#         run_dbt_duckdb(
+#             command="run", 
+#             select_path="+fct_upper_forecast +fct_surface_forecast"
+#         )
+    
+#     run_unified_dbt_models()
+
+# # Register the Unified View DAG
+# globals()["dag_unified_forecast_refresh"] = refresh_unified_forecasts()

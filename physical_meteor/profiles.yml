@@ -5,6 +5,7 @@ physical_meteor:
     dev_duckdb:
       type: duckdb
       path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/PHYSICAL_METEOR_DB.duckdb') }}"
+      threads: 1  # <--- THIS MUST BE 1
       extensions:
         - httpfs
         - delta
@@ -25,8 +26,12 @@ physical_meteor:
         parquet_metadata_cache: true
         http_retries: 5
         http_retry_backoff: 2
+        memory_limit: '4GB'              # Caps DuckDB so it doesn't hit the OS limit
+        # max_temp_directory_size: '10GB'  # Prevents filling the entire disk
+        # temp_directory: '/opt/airflow/data/duckdb_tmp' # Ensure this folder exists
+        threads: 1
         # Limits how many parallel range-requests DuckDB makes per file
-        max_memory: '16GB' # Leave some headroom for the OS and Airflow
+        max_memory: '12GB' # Leave some headroom for the OS and Airflow
 
       # # ✅ ADD the 'secrets' block
       # secrets:

@@ -680,6 +680,8 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
                 # --- CHANGE 2: Canonicalize variable naming (z -> gh) to match Registry keys ---
                 if 'z' in ds.data_vars and 'gh' not in ds.data_vars:
                     ds = ds.rename({'z': 'gh'})
+                    ds['gh'] = ds['gh'] / 9.80665
+                    ds['gh'].attrs['units'] = 'gpm'  # Geopotential meters (or just 'm')
                 
                 # Update target_var logic to prioritize 'gh' (our registry key)
                 target_var = 'gh' if 'gh' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
