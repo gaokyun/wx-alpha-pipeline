@@ -611,6 +611,8 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
     arrow_tables, master_pk_cols, task_name, all_success = [], None, None, True
 
     for step in steps:
+        time.sleep(random.uniform(0.5, 2.0))
+
         task_dict = None
         if model_type == 'AIFS':
             common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
@@ -658,39 +660,57 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
 
         if task_dict:
             task_name, temp_path, download_ok = task_dict['name'], os.path.join(temp_dir, task_dict['temp_name']), False
+            # --- FIX 2: Better Retry Logic and Error Logging ---
             for attempt in range(3):
                 try:
+                    logger.info(f"Downloading {task_name} step {step} (Attempt {attempt+1})")
                     client.retrieve({"date": date_str, "time": f"{cycle:02d}", "target": temp_path, **task_dict['params']})
-                    if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024: download_ok = True; break
-                except Exception: time.sleep(2 ** (attempt + 1))
+                    
+                    if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024: 
+                        download_ok = True
+                        break
+                except Exception as e:
+                    logger.warning(f"Download failed for step {step}: {str(e)}")
+                    time.sleep(2 ** (attempt + 1) + random.random()) # Exponential backoff with jitter
 
             if not download_ok: all_success = False; continue
 
             ds = None
             try:
+                # --- FIX 3: Robust GRIB Loading ---
+                # indexpath='' prevents the creation of .idx files which can cause race conditions in parallel
                 datasets = cfgrib.open_datasets(temp_path, backend_kwargs={'indexpath': ''})
+                
                 clean_datasets = []
                 for ds_part in datasets:
                     if 'isobaricInhPa' in ds_part.coords and ds_part['isobaricInhPa'].ndim == 0:
                         ds_part = ds_part.expand_dims('isobaricInhPa')
                     clean_datasets.append(ds_part)
+                
                 ds = xr.merge(clean_datasets) if len(clean_datasets) > 1 else clean_datasets[0]
                 ds = _apply_xarray_canonicalization(ds)
 
-                # --- CHANGE 2: Canonicalize variable naming (z -> gh) to match Registry keys ---
-                if 'z' in ds.data_vars and 'gh' not in ds.data_vars:
-                    ds = ds.rename({'z': 'gh'})
+                # --- FIX 4: Defensive Param Check (Handling 'z' Warning) ---
+                if 'z' in ds.data_vars:
+                    logger.info(f"{ds.data_vars} Start processing...")
+                    if 'gh' not in ds.data_vars:
+                        ds = ds.rename({'z': 'gh'})
                     ds['gh'] = ds['gh'] / 9.80665
-                    ds['gh'].attrs['units'] = 'gpm'  # Geopotential meters (or just 'm')
+                    # ds['gh'].attrs['units'] = 'gpm'
                 
-                # Update target_var logic to prioritize 'gh' (our registry key)
                 target_var = 'gh' if 'gh' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
-                # target_var = 'z' if 'z' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
-                # ------------------------------------------------------------------------------
+
+                if target_var is None:
+                    raise KeyError(f"Expected variables (gh/msl) not found in dataset. Available: {list(ds.data_vars)}")
 
                 pa_table, pk_cols = extract_to_arrow(ds, target_var)
-                arrow_tables.append(pa_table); master_pk_cols = pk_cols
-            except Exception: all_success = False
+                arrow_tables.append(pa_table)
+                master_pk_cols = pk_cols
+                
+            except Exception:
+                # --- FIX 5: Capture the Traceback ---
+                logger.error(f"Processing error at step {step}:\n{traceback.format_exc()}")
+                all_success = False
             finally:
                 if ds: ds.close()
                 if os.path.exists(temp_path): os.remove(temp_path)

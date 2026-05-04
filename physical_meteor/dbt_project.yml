@@ -56,9 +56,9 @@ models:
       +materialized: view
       +schema: silver      # Results in: main_silver (DuckDB default)
       gfs:
-        +tags: ["gfs", "silver"]
+        +tags: ["gfs", "silver", "staging"]
       ecmwf:
-        +tags: ["ecmwf", "silver"]
+        +tags: ["ecmwf", "silver", "staging"]
 
     # --- GOLD LAYER ---
     marts:
@@ -68,12 +68,12 @@ models:
           +schema: gold
           +materialized: incremental
           +incremental_strategy: delete+insert #insert_overwrite
-          +tags: ["atomic_marts"]
+          +tags: ["marts", "gold", "atomic"]
         
         # 2. The "Dining Room" (The only thing users see)
         fct_unified_forecast:
           +schema: gold      # Results in: main_gold
           +materialized: view
-          +tags: ["unified"]
+          +tags: ["unified", "gold", "marts"]
 
   

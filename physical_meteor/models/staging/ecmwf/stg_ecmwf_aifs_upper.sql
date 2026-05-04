@@ -40,11 +40,12 @@ renamed_and_casted AS (
 )
 
 SELECT *,
-    MD5(
-        COALESCE(CAST(cycle_date AS VARCHAR), '') || '|' ||
-        COALESCE(CAST(cycle_hour AS VARCHAR), '') || '|' ||
-        COALESCE(CAST(forecast_step_hours AS VARCHAR), '') || '|' ||
-        COALESCE(CAST(lat_i AS VARCHAR), '') || '|' ||
-        COALESCE(CAST(lon_i AS VARCHAR), '')
-    )::VARCHAR AS surrogate_merge_key
+    -- MD5(
+    --     CAST(cycle_date AS VARCHAR) || '-' ||
+    --     CAST(cycle_hour AS VARCHAR) || '-' ||
+    --     CAST(forecast_step_hours AS VARCHAR) || '-' ||
+    --     CAST(lat_i AS VARCHAR) || '-' ||
+    --     CAST(lon_i AS VARCHAR)
+    -- ) 
+    '' AS surrogate_merge_key
  FROM renamed_and_casted

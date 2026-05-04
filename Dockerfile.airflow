@@ -148,6 +148,8 @@ USER 50000
 RUN pip install --no-cache-dir \
     jupyterhub==5.4.4 jupyterlab jupysql oci boto3 \
     pydantic-settings \ 
+    jupyter-server-proxy \
+    dash plotly \
     #jupyter-ai jupyter-ai-jupyternaut \
     jupyterlab-git langchain-openai openai
 

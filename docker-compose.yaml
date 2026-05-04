@@ -361,6 +361,8 @@ services:
   airflow-worker:
     <<: *airflow-common
     hostname: airflow-worker
+    ports:
+      - "0.0.0.0:9350:8001"
     container_name: airflow-worker
     # Default command (can be overridden by docker-compose)
     command: celery worker

@@ -22,8 +22,8 @@ renamed_and_casted AS (
 
         -- Fixed-Point Integer Indices
         -- Shift by 90/360 to ensure positive values, then scale to remove decimals
-        CAST((latitude + 90) * 100 AS BIGINT) AS lat_i,
-        CAST((longitude + 360) * 100 AS BIGINT) AS lon_i,
+        COALESCE(CAST((latitude + 90) * 100 AS INTEGER), -1) AS lat_i,
+        COALESCE(CAST((longitude + 360) * 100 AS INTEGER), -1) AS lon_i,
 
         CAST(isobaricInhPa AS INTEGER) AS pressure_level_hpa,
 
@@ -41,11 +41,12 @@ renamed_and_casted AS (
 )
 
 SELECT *,
-    MD5(
-        CAST(cycle_date AS VARCHAR) || '-' ||
-        CAST(cycle_hour AS VARCHAR) || '-' ||
-        CAST(forecast_step_hours AS VARCHAR) || '-' ||
-        CAST(lat_i AS VARCHAR) || '-' ||
-        CAST(lon_i AS VARCHAR)
-    ) AS surrogate_merge_key
+    -- MD5(
+    --     CAST(cycle_date AS VARCHAR) || '-' ||
+    --     CAST(cycle_hour AS VARCHAR) || '-' ||
+    --     CAST(forecast_step_hours AS VARCHAR) || '-' ||
+    --     CAST(lat_i AS VARCHAR) || '-' ||
+    --     CAST(lon_i AS VARCHAR)
+    -- ) 
+    '' AS surrogate_merge_key
  FROM renamed_and_casted

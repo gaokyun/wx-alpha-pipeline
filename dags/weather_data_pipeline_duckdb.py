@@ -268,7 +268,7 @@ def refresh_unified_forecasts_v2():
         )
 
     # 1. First, refresh all staging views (fast, low RAM)
-    stg_refresh = dbt_task('refresh_silver_layer', 'tag:staging')
+    stg_refresh = dbt_task('refresh_silver_layer', 'tag:silver')
 
     # 2. Sequential Gold refreshes (one at a time to save RAM)
     aifs_gold = dbt_task('gold_aifs', 'fct_aifs_upper fct_aifs_surface fct_aifs_spread')

@@ -23,7 +23,8 @@ storage_options = {
 
 # The tables you want to maintain in OCI
 DELTA_TABLES = [
-    f"s3://{OCI_BUCKET}/weather_data/delta_lake/gfs_raw/",
+    f"s3://{OCI_BUCKET}/weather_data/delta_lake/gfs_raw/gfs_upper/",
+    f"s3://{OCI_BUCKET}/weather_data/delta_lake/gfs_raw/gfs_surface/",
     f"s3://{OCI_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_upper/",
     f"s3://{OCI_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_surface/",
     f"s3://{OCI_BUCKET}/weather_data/delta_lake/ecmwf_raw/ifs_spread/",
@@ -57,6 +58,23 @@ def delta_maintenance_pipeline():
             
             try:
                 dt = DeltaTable(table_path, storage_options=storage_options)
+
+                partitions = dt.partitions()
+                targets = sorted({
+                    p["forecast_date"]
+                    for p in partitions
+                    if p["forecast_date"] < cutoff_string
+                })
+
+                # --- NEW LOGIC ADDED HERE ---
+                if not targets:
+                    print(f"{table_path} -> No partitions found older than {cutoff_string}. Skipping.")
+                    print(f"--- Maintenance complete for {table_path} ---\n")
+                    continue  # Safely skip to the next table in DELTA_TABLES
+                # ----------------------------
+
+                quoted_dates = ",".join(f"'{d}'" for d in targets)
+                predicate = f"forecast_date IN ({quoted_dates})"
                 
                 # 1. Logical Delete (Updates the Delta Log)
                 print(f"  -> Executing logical delete for OCI partition: {predicate}")
