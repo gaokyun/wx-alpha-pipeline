@@ -596,142 +596,262 @@ def download_gfs_robust(date_obj, cycle, steps, task_type='upper'):
             
     return all_success
 
-def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'): 
+def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'):
     """ECMWF Unified Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake on OCI Object Storage)"""
-    
+
     client = Client("ecmwf", beta=False)
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
     cycle_str = f"{cycle:02d}z"
-    if not isinstance(steps, (list, tuple)): steps = [steps]
-        
+
+    # ✅ 1. Deduplicate steps
+    if not isinstance(steps, (list, tuple)):
+        steps = [steps]
+    steps = sorted(set(int(s) for s in steps))
+
     temp_dir = os.path.join(weather_config.BASE_DIR, "Data", "Temp_Global_Buffer")
     os.makedirs(temp_dir, exist_ok=True)
-    
+
     model_type = target_model.upper()
-    arrow_tables, master_pk_cols, task_name, all_success = [], None, None, True
+    arrow_tables = []
+    master_pk_cols = None
+    task_name = None
+
+    # ✅ Additional protection: prevent duplicate downloads in same run
+    processed_files = set()
 
     for step in steps:
         time.sleep(random.uniform(0.5, 2.0))
 
         task_dict = None
-        if model_type == 'AIFS':
-            common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
-            file_prefix = "at_aifs"
-        elif model_type == 'IFS':
-            common_params = {"class": "od", "stream": "oper", "type": "fc", "levtype": "pl", "step": step}
-            file_prefix = "at_ifs"   
-        else: return False
 
+        if model_type == 'AIFS':
+            common_params = {
+                "class": "od", "stream": "oper", "type": "fc",
+                "model": "aifs-single", "step": step
+            }
+            file_prefix = "at_aifs"
+
+        elif model_type == 'IFS':
+            common_params = {
+                "class": "od", "stream": "oper", "type": "fc",
+                "levtype": "pl", "step": step
+            }
+            file_prefix = "at_ifs"
+
+        else:
+            raise ValueError(f"Unsupported model: {model_type}")
+
+        # ----------------------------
+        # Build task
+        # ----------------------------
         if task_type == 'spread':
-            # --- CHANGE 1: Use registry to define params for spread to ensure alignment ---
             spread_params = []
             for k in ["gh", "t"]:
                 p = METEO_REGISTRY["upper"][k]["ecmwf"]
-                spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
-            
-            task_dict = {"name": f"{model_type.lower()}_spread", "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
-                         "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", 
-                                    "levelist": [500, 850], "param": list(set(spread_params)), "step": step}}
-            # ------------------------------------------------------------------------------
-        # if task_type == 'spread':
-        #     task_dict = {
-        #         "name": f"{model_type.lower()}_spread", 
-        #         "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
-        #         "params": {
-        #             "class": "od", 
-        #             "stream": "enfo", 
-        #             "type": "es", 
-        #             "levtype": "pl", 
-        #             "levelist": [250, 500, 850], # Added 250
-        #             "param": ['z', 't', 'u', 'v'], # Added Wind components for 250hPa Jet Spread
-        #             "step": step
-        #         }
-        #     }
+                spread_params.extend(p if isinstance(p, list) else [p])
+
+            task_dict = {
+                "name": f"{model_type.lower()}_spread",
+                "temp_name": f"TEMP_{model_type}_{step}h.grib2",
+                "params": {
+                    "class": "od", "stream": "enfo", "type": "es",
+                    "levtype": "pl",
+                    "levelist": [500, 850],
+                    "param": list(set(spread_params)),
+                    "step": step
+                }
+            }
 
         elif task_type == 'upper':
             short_names = []
-            for p in [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]:
-                short_names.extend(p) if isinstance(p, list) else short_names.append(p)
-            task_dict = {"name": f"{file_prefix}_upper", "temp_name": f"TEMP_{file_prefix}_upper_{step}h.grib2",
-                         "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": list(set(short_names))}}
-        elif task_type == 'surface':
-            task_dict = {"name": f"{file_prefix}_surface", "temp_name": f"TEMP_{file_prefix}_surf_{step}h.grib2",
-                         "params": {**common_params, "levtype": "sfc", "param": [v["ecmwf"] for k, v in METEO_REGISTRY["surface"].items()]}}
+            for v in METEO_REGISTRY["upper"].values():
+                p = v["ecmwf"]
+                short_names.extend(p if isinstance(p, list) else [p])
 
-        if task_dict:
-            task_name, temp_path, download_ok = task_dict['name'], os.path.join(temp_dir, task_dict['temp_name']), False
-            # --- FIX 2: Better Retry Logic and Error Logging ---
-            for attempt in range(3):
-                try:
-                    logger.info(f"Downloading {task_name} step {step} (Attempt {attempt+1})")
-                    client.retrieve({"date": date_str, "time": f"{cycle:02d}", "target": temp_path, **task_dict['params']})
-                    
-                    if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024: 
-                        download_ok = True
-                        break
-                except Exception as e:
-                    logger.warning(f"Download failed for step {step}: {str(e)}")
-                    time.sleep(2 ** (attempt + 1) + random.random()) # Exponential backoff with jitter
-
-            if not download_ok: all_success = False; continue
-
-            ds = None
-            try:
-                # --- FIX 3: Robust GRIB Loading ---
-                # indexpath='' prevents the creation of .idx files which can cause race conditions in parallel
-                datasets = cfgrib.open_datasets(temp_path, backend_kwargs={'indexpath': ''})
-                
-                clean_datasets = []
-                for ds_part in datasets:
-                    if 'isobaricInhPa' in ds_part.coords and ds_part['isobaricInhPa'].ndim == 0:
-                        ds_part = ds_part.expand_dims('isobaricInhPa')
-                    clean_datasets.append(ds_part)
-                
-                ds = xr.merge(clean_datasets) if len(clean_datasets) > 1 else clean_datasets[0]
-                ds = _apply_xarray_canonicalization(ds)
-
-                # --- FIX 4: Defensive Param Check (Handling 'z' Warning) ---
-                if 'z' in ds.data_vars:
-                    logger.info(f"{ds.data_vars} Start processing...")
-                    if 'gh' not in ds.data_vars:
-                        ds = ds.rename({'z': 'gh'})
-                    ds['gh'] = ds['gh'] / 9.80665
-                    # ds['gh'].attrs['units'] = 'gpm'
-                
-                target_var = 'gh' if 'gh' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
-
-                if target_var is None:
-                    raise KeyError(f"Expected variables (gh/msl) not found in dataset. Available: {list(ds.data_vars)}")
-
-                pa_table, pk_cols = extract_to_arrow(ds, target_var)
-                arrow_tables.append(pa_table)
-                master_pk_cols = pk_cols
-                
-            except Exception:
-                # --- FIX 5: Capture the Traceback ---
-                logger.error(f"Processing error at step {step}:\n{traceback.format_exc()}")
-                all_success = False
-            finally:
-                if ds: ds.close()
-                if os.path.exists(temp_path): os.remove(temp_path)
-        
-    if arrow_tables and master_pk_cols and task_name:
-        try:
-            master_table = pa.concat_tables(arrow_tables)
-            delta_table_oci_path = f"s3://{weather_config.OCI_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task_name}/"
-            storage_options = {
-                "AWS_ACCESS_KEY_ID": weather_config.OCI_ACCESS_KEY,
-                "AWS_SECRET_ACCESS_KEY": weather_config.OCI_SECRET_KEY,
-                "AWS_REGION": weather_config.OCI_REGION,
-                "AWS_ENDPOINT_URL": weather_config.OCI_ENDPOINT,
-                "AWS_S3_ADDRESSING_STYLE": "path"
+            task_dict = {
+                "name": f"{file_prefix}_upper",
+                "temp_name": f"TEMP_{file_prefix}_upper_{step}h.grib2",
+                "params": {
+                    **common_params,
+                    "levtype": "pl",
+                    "levelist": [850, 500, 250],
+                    "param": list(set(short_names))
+                }
             }
-            upsert_weather_data(master_table, master_pk_cols, delta_table_oci_path, storage_options)
-            build_duckdb_silver_layer(task_name, delta_table_oci_path)
-        except Exception: all_success = False
-            
-    return all_success
 
+        elif task_type == 'surface':
+            params = []
+            for v in METEO_REGISTRY["surface"].values():
+                p = v["ecmwf"]
+                params.extend(p if isinstance(p, list) else [p])
+
+            task_dict = {
+                "name": f"{file_prefix}_surface",
+                "temp_name": f"TEMP_{file_prefix}_surf_{step}h.grib2",
+                "params": {
+                    **common_params,
+                    "levtype": "sfc",
+                    "param": list(set(params))
+                }
+            }
+
+        else:
+            raise ValueError(f"Unsupported task_type: {task_type}")
+
+        task_name = task_dict['name']
+        temp_path = os.path.join(temp_dir, task_dict['temp_name'])
+
+        # ✅ Prevent duplicate processing
+        file_key = (task_name, step)
+        if file_key in processed_files:
+            logger.warning(f"Skipping duplicate step {step}")
+            continue
+        processed_files.add(file_key)
+
+        # ----------------------------
+        # Download with retry
+        # ----------------------------
+        download_ok = False
+        for attempt in range(3):
+            try:
+                logger.info(f"Downloading {task_name} step {step} (Attempt {attempt+1})")
+
+                client.retrieve({
+                    "date": date_str,
+                    "time": f"{cycle:02d}",
+                    "target": temp_path,
+                    **task_dict['params']
+                })
+
+                if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024:
+                    download_ok = True
+                    break
+
+            except Exception as e:
+                logger.warning(f"Download failed (step={step}, attempt={attempt+1}): {e}")
+                time.sleep(2 ** attempt + random.random())
+
+        if not download_ok:
+            raise RuntimeError(f"FATAL: Failed download after retries: {task_name} step {step}")
+
+        ds = None
+
+        try:
+            # ----------------------------
+            # Load GRIB safely
+            # ----------------------------
+            datasets = cfgrib.open_datasets(
+                temp_path,
+                backend_kwargs={"indexpath": ""}
+            )
+
+            if not datasets:
+                raise ValueError(f"No datasets in GRIB: {temp_path}")
+
+            clean = []
+
+            for i, d in enumerate(datasets):
+                logger.info(f"[step={step}] ds[{i}] vars={list(d.data_vars)} dims={dict(d.dims)}")
+
+                # Fix scalar pressure level
+                if 'isobaricInhPa' in d.coords and d['isobaricInhPa'].ndim == 0:
+                    d = d.expand_dims('isobaricInhPa')
+
+                clean.append(d)
+
+            # ----------------------------
+            # Smarter merge (group-aware)
+            # ----------------------------
+            grouped = {}
+            for d in clean:
+                key = tuple(sorted(d.dims.keys()))
+                grouped.setdefault(key, []).append(d)
+
+            merged_groups = [
+                xr.merge(group, compat="no_conflicts", join="outer")
+                for group in grouped.values()
+            ]
+
+            ds = xr.merge(merged_groups, compat="no_conflicts", join="outer")
+
+            ds = _apply_xarray_canonicalization(ds)
+
+            # ----------------------------
+            # Variable normalization
+            # ----------------------------
+            if 'z' in ds.data_vars and 'gh' not in ds.data_vars:
+                logger.info("Converting z → gh")
+                ds = ds.rename({'z': 'gh'})
+                ds['gh'] = ds['gh'] / 9.80665
+
+            # Flexible target selection
+            if 'gh' in ds.data_vars:
+                target_var = 'gh'
+            elif 'msl' in ds.data_vars:
+                target_var = 'msl'
+            elif 't' in ds.data_vars:
+                target_var = 't'   # fallback instead of hard fail
+            else:
+                raise ValueError(
+                    f"No usable variables in {temp_path}. Found: {list(ds.data_vars)}"
+                )
+
+            # ----------------------------
+            # Convert to Arrow
+            # ----------------------------
+            pa_table, pk_cols = extract_to_arrow(ds, target_var)
+
+            if pa_table is None or pa_table.num_rows == 0:
+                raise ValueError(f"Empty Arrow table for step {step}")
+
+            arrow_tables.append(pa_table)
+            master_pk_cols = pk_cols
+
+        except Exception as e:
+            logger.error(f"Processing failed (step={step}):\n{traceback.format_exc()}")
+            raise RuntimeError(f"Failed processing {temp_path}") from e
+
+        finally:
+            if ds is not None:
+                ds.close()
+
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    # ----------------------------
+    # Final write
+    # ----------------------------
+    if not arrow_tables:
+        raise RuntimeError("No data extracted — aborting pipeline")
+
+    if not master_pk_cols or not task_name:
+        raise RuntimeError("Missing metadata for final upsert")
+
+    try:
+        master_table = pa.concat_tables(arrow_tables)
+
+        delta_path = (
+            f"s3://{weather_config.OCI_BUCKET}/weather_data/"
+            f"delta_lake/ecmwf_raw/{task_name}/"
+        )
+
+        storage_options = {
+            "AWS_ACCESS_KEY_ID": weather_config.OCI_ACCESS_KEY,
+            "AWS_SECRET_ACCESS_KEY": weather_config.OCI_SECRET_KEY,
+            "AWS_REGION": weather_config.OCI_REGION,
+            "AWS_ENDPOINT_URL": weather_config.OCI_ENDPOINT,
+            "AWS_S3_ADDRESSING_STYLE": "path"
+        }
+
+        upsert_weather_data(master_table, master_pk_cols, delta_path, storage_options)
+        build_duckdb_silver_layer(task_name, delta_path)
+
+    except Exception as e:
+        logger.error(f"Storage failure:\n{traceback.format_exc()}")
+        raise RuntimeError("Delta Lake upsert failed") from e
+
+    return True
+        
 # ==============================================================================
 # DOWNSTREAM PROCESSING FUNCTIONS (Local Compute Analytics / Legacy)
 # ==============================================================================
