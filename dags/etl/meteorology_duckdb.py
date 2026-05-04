@@ -1,5 +1,6 @@
 import os
 import time
+import random
 import logging
 import requests
 import subprocess
@@ -851,7 +852,7 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
         raise RuntimeError("Delta Lake upsert failed") from e
 
     return True
-        
+
 # ==============================================================================
 # DOWNSTREAM PROCESSING FUNCTIONS (Local Compute Analytics / Legacy)
 # ==============================================================================
