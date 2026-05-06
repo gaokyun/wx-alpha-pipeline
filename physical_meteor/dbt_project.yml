@@ -19,32 +19,14 @@ clean-targets:         # directories to be removed by `dbt clean`
   - "dbt_packages"
 
 # dbt_project.yml
-on-run-start:
+
   # This block will ONLY execute when running against DuckDB
   - >
     {% if target.type == 'duckdb' %}
       INSTALL httpfs; LOAD httpfs;
       INSTALL aws; LOAD aws;
       INSTALL delta; LOAD delta;
-      CREATE OR REPLACE SECRET oci_main (
-          TYPE S3,
-          KEY_ID '{{ env_var("OCI_ACCESS_KEY") }}',
-          SECRET '{{ env_var("OCI_SECRET_KEY") }}',
-          REGION 'us-ashburn-1',
-          ENDPOINT 'idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com',
-          URL_STYLE 'path',
-          USE_SSL 'true',
-          SCOPE 's3://'
-      );
-      -- 3. Set Global Session Defaults
-      -- These ensure DuckDB's internal S3 client routes correctly to OCI
-      SET s3_endpoint = 'idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com';
-      SET s3_url_style = 'path';
-      SET s3_region = 'us-ashburn-1';
 
-      -- 4. Senior DE Performance & Stability Tuning
-      SET parquet_metadata_cache = true;
-      -- SET s3_allow_http_fallback = false; -- Prevents the 169.254.169.254 metadata hang
     {% elif target.type == 'postgres' %}
       -- Postgres specific setup (No DuckDB commands allowed here!)
       SELECT 1;
@@ -56,28 +38,33 @@ on-run-start:
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models
+# Configuring models
 models:
-  physical_meteor: # This must match your project name above
+  physical_meteor:
     
-    # ---------------------------------------------------------
-    # 1. SILVER LAYER (Staging: Light cleaning, renaming, casting)
-    # ---------------------------------------------------------
+    # --- SILVER LAYER ---
     staging:
-      +materialized: view      # Staging should always be views to save space
-      +schema: silver          # Puts these in PHYSICAL_METEOR_DB.SILVER
-      
+      +materialized: view
+      +schema: silver      # Results in: main_silver (DuckDB default)
       gfs:
-        +tags: ["gfs", "meteorology", "staging"]
-        
+        +tags: ["gfs", "silver"]
       ecmwf:
-        +tags: ["ecmwf", "meteorology", "staging"]
+        +tags: ["ecmwf", "silver"]
 
-    # ---------------------------------------------------------
-    # 2. GOLD LAYER (Marts: Heavy joins, business logic, consensus)
-    # ---------------------------------------------------------
+    # --- GOLD LAYER ---
     marts:
-      +materialized: table     # Marts should be tables for fast BI querying
-      +schema: gold            # Puts these in PHYSICAL_METEOR_DB.GOLD
-      
-      weather:                 # Replaces 'combined' for better domain naming
-        +tags: ["consensus", "daily_batch"]
+      weather:
+        # 1. The "Kitchen" (Where the atomic tables are cooked)
+        atomic:
+          +schema: gold_staging
+          +materialized: incremental
+          +incremental_strategy: delete+insert #insert_overwrite
+          +tags: ["atomic_marts"]
+        
+        # 2. The "Dining Room" (The only thing users see)
+        fct_unified_forecast:
+          +schema: gold      # Results in: main_gold
+          +materialized: view
+          +tags: ["unified"]
+
+  

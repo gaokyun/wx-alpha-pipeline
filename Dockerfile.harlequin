@@ -1,0 +1,7 @@
+FROM python:3.11-slim
+
+# Install Harlequin with both DuckDB and Postgres adapters
+RUN pip install --no-cache-dir "harlequin[duckdb,postgres]"
+
+WORKDIR /data
+ENTRYPOINT ["harlequin"]

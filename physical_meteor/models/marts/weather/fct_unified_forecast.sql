@@ -1,9 +1,7 @@
-WITH stg_upper AS (
-    SELECT 'aifs' as model, * FROM {{ ref('stg_ecmwf_aifs_upper') }}
-union all
-    SELECT 'ifs' as model, * FROM {{ ref('stg_ecmwf_ifs_upper') }}
-union all
-    SELECT 'gfs' as model, * FROM {{ ref('stg_gfs_upper') }}   
-)
+{{ config(schema='gold', materialized='view') }}
 
-SELECT * FROM stg_upper
+SELECT * FROM {{ ref('fct_gfs_upper') }}
+UNION ALL
+SELECT * FROM {{ ref('fct_aifs_upper') }}
+UNION ALL
+SELECT * FROM {{ ref('fct_ifs_upper') }}

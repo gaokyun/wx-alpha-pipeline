@@ -28,4 +28,7 @@ dbt_packages/
 .idea/
 .vscode/
 .DS_Store
-Thumbs.db
+Thumbs.dbdata/
+
+# Data
+data/
