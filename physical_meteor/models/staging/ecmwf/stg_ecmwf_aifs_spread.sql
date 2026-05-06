@@ -46,3 +46,4 @@ SELECT *,
     -- ) 
     '' AS surrogate_merge_key
  FROM renamed_and_casted
+ where 1 = 0

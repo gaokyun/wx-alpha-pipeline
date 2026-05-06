@@ -16,6 +16,8 @@ import duckdb
 from ecmwf.opendata import Client
 import warnings
 from dbt.cli.main import dbtRunner, dbtRunnerResult
+import requests
+import traceback
 
 # Silence Dask & Airflow 3 SDK redirection noise
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="dask.tokenize")
@@ -155,8 +157,8 @@ def extract_to_arrow(ds, target_var):
 
     lat_arr = data_dict["latitude"].astype(np.float32)
     lon_arr = data_dict["longitude"].astype(np.float32)
-    data_dict["lat_i"] = np.round(lat_arr * 1000).astype(np.int32)
-    data_dict["lon_i"] = np.round(lon_arr * 1000).astype(np.int32)
+    data_dict["lat_i"] = np.round((lat_arr + 90) * 1000).astype(np.int32)
+    data_dict["lon_i"] = np.round((lon_arr + 180) * 1000).astype(np.int32)
 
     if "time" in data_dict:
         frt = data_dict["time"].astype("datetime64[us]")
@@ -597,6 +599,33 @@ def download_gfs_robust(date_obj, cycle, steps, task_type='upper'):
             
     return all_success
 
+def ecmwf_file_exists(url):
+    """
+    Probes the ECMWF S3/HTTP endpoint to definitively check if a file exists,
+    bypassing silent redirects and catching 'Not a regular file' text errors.
+    """
+    try:
+        # Ask for only the first 150 bytes. Lightning fast, zero bandwidth waste.
+        headers = {"Range": "bytes=0-150"}
+        r = requests.get(url, headers=headers, timeout=10)
+        
+        # 1. Standard HTTP Failure
+        if r.status_code not in [200, 206]:
+            return False
+            
+        # 2. The User's Catch: Check for ECMWF's specific text/HTML error responses
+        response_text = r.text
+        if "Not a regular file" in response_text or "NoSuchKey" in response_text or "<Error>" in response_text:
+            return False
+            
+        # 3. The Physical Audit: Every valid GRIB2 file MUST start with the string 'GRIB'
+        if not r.content.startswith(b'GRIB'):
+            return False
+            
+        return True
+    except Exception:
+        return False
+
 def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'): 
     """ECMWF Unified Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake on OCI Object Storage)"""
     
@@ -630,35 +659,34 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
         #         p = METEO_REGISTRY["upper"][k]["ecmwf"]
         #         spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
             
-        #     task_dict = {"name": f"{model_type.lower()}_spread", 
-        #                 "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
+        #     task_dict = {"name": f"{model_type.lower()}_spread", "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
         #                  "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", 
         #                             "levelist": [500, 850], "param": list(set(spread_params)), "step": step}}
         #     # ------------------------------------------------------------------------------
 
         if task_type == 'spread':
-            # ✅ Keep your registry alignment logic
+            # ... CHANGE 1: Your registry logic ...
             spread_params = []
             for k in ["gh", "t"]:
                 p = METEO_REGISTRY["upper"][k]["ecmwf"]
-                spread_params.extend(p if isinstance(p, list) else [p])
+                spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
+            
+            # Define the model specifically for the AI ensemble
+            # 'aifs-ens' is the only one that supports type 'es' with 6-hourly steps
+            target_model_name = "aifs-ens" if model_type == 'AIFS' else "ifs"
 
-            # spread_params = [
-            #         p for k in ["gh", "t"] 
-            #         for p in (METEO_REGISTRY["upper"][k]["ecmwf"] if isinstance(METEO_REGISTRY["upper"][k]["ecmwf"], list) else [METEO_REGISTRY["upper"][k]["ecmwf"]])
-            #     ]    
-                            
             task_dict = {
                 "name": f"{model_type.lower()}_spread", 
                 "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
                 "params": {
-                    **common_params,  # 👈 CRITICAL FIX: Include model/class/stream defaults
-                    "stream": "enfo", # Overwrite stream for ensemble
-                    "type": "es",     # Overwrite type for spread
+                    "class": "od", 
+                    "model": target_model_name,  # <--- CRITICAL: Fixes the step snapping
+                    "stream": "enfo", 
+                    "type": "ep", 
                     "levtype": "pl", 
                     "levelist": [500, 850], 
                     "param": list(set(spread_params)), 
-                    "step": step      # Ensure current loop step is used
+                    "step": step
                 }
             }
 
@@ -744,6 +772,165 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
                 if ds: ds.close()
                 if os.path.exists(temp_path): os.remove(temp_path)
         
+    if arrow_tables and master_pk_cols and task_name:
+        try:
+            master_table = pa.concat_tables(arrow_tables)
+            delta_table_oci_path = f"s3://{weather_config.OCI_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task_name}/"
+            storage_options = {
+                "AWS_ACCESS_KEY_ID": weather_config.OCI_ACCESS_KEY,
+                "AWS_SECRET_ACCESS_KEY": weather_config.OCI_SECRET_KEY,
+                "AWS_REGION": weather_config.OCI_REGION,
+                "AWS_ENDPOINT_URL": weather_config.OCI_ENDPOINT,
+                "AWS_S3_ADDRESSING_STYLE": "path"
+            }
+            upsert_weather_data(master_table, master_pk_cols, delta_table_oci_path, storage_options)
+            build_duckdb_silver_layer(task_name, delta_table_oci_path)
+        except Exception: all_success = False
+            
+    return all_success
+
+def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'):
+    """Hybrid ECMWF Downloader: Client for IFS, Direct URL for AIFS-ENS Spread"""
+    
+    client = Client("ecmwf", beta=False)
+    date_str = pendulum.instance(date_obj).format("YYYYMMDD")
+    cycle_str = f"{cycle:02d}z"
+    if not isinstance(steps, (list, tuple)): steps = [steps]
+    
+    temp_dir = os.path.join(weather_config.BASE_DIR, "Data", "Temp_Global_Buffer")
+    os.makedirs(temp_dir, exist_ok=True)
+    
+    model_type = target_model.upper()
+    arrow_tables, master_pk_cols, task_name, all_success = [], None, None, True
+
+    for step in steps:
+
+        if task_type == 'spread': #-- and model_type == 'AIFS':
+            # ECMWF only publishes 'ep' products for 240h and 360h
+            # If the step is 192, 288, or any other unsupported step, skip gracefully
+            supported_ep_steps = [240, 360] 
+            
+            if step not in supported_ep_steps or model_type == 'AIFS':
+                logger.info(f"⏩ [SKIP] Step {step}h omitted for AIFS Spread (EP file not published by ECMWF).")
+                continue # Safely move to the next step without failing the task
+
+        time.sleep(random.uniform(0.5, 2.0))
+        
+        # 1. Parameter Routing Logic
+        if model_type == 'AIFS':
+            common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
+            file_prefix = "at_aifs"
+        elif model_type == 'IFS':
+            common_params = {"class": "od", "stream": "oper", "type": "fc", "levtype": "pl", "step": step}
+            file_prefix = "at_ifs"
+        else: return False
+
+        # 2. Strategy Assignment
+        use_direct_url = False
+        if task_type == 'spread':
+            spread_params = []
+            for k in ["gh", "t"]:
+                p = METEO_REGISTRY["upper"][k]["ecmwf"]
+                # AIFS Spread folder often uses 'z' instead of 'gh'
+                if k == "gh" and model_type == 'AIFS': p = 'z'
+                spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
+            
+            task_name = f"{model_type.lower()}_spread"
+            temp_name = f"TEMP_{model_type}_{step}h.grib2"
+            
+            # THE SURGICAL BYPASS: Only for AIFS Ensemble Spread
+            if model_type == 'AIFS':
+                use_direct_url = True
+                # We target the 'ep' (Ensemble Product) suffix for spread
+                direct_url = (
+                    f"https://data.ecmwf.int/forecasts/{date_str}/{cycle_str}/"
+                    f"aifs-ens/0p25/enfo/{date_str}{cycle:02d}0000-{step}h-enfo-ep.grib2"
+                )
+                if not ecmwf_file_exists(direct_url):
+                    logger.warning(f"⏩ [SKIP] Dynamic Probe detected no valid GRIB file at {step}h. Skipping.")
+                    return None # Safely abort. It's truly not there.
+                task_params = {
+                    "class": "od", "model": "aifs", "stream": "enfo", "type": "ep", 
+                    "levtype": "pl", "levelist": [500, 850], 
+                    "param": list(set(spread_params)), "step": step
+                }
+
+            else:
+                # IFS Ensemble still uses the client
+                task_params = {
+                    "class": "od", "model": "ifs", "stream": "enfo", "type": "es", 
+                    "levtype": "pl", "levelist": [500, 850], 
+                    "param": list(set(spread_params)), "step": step
+                }
+        
+        elif task_type == 'upper':
+            short_names = []
+            for p in [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]:
+                short_names.extend(p) if isinstance(p, list) else short_names.append(p)
+            task_name = f"{file_prefix}_upper"
+            temp_name = f"TEMP_{file_prefix}_upper_{step}h.grib2"
+            task_params = {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": list(set(short_names))}
+            
+        elif task_type == 'surface':
+            task_name = f"{file_prefix}_surface"
+            temp_name = f"TEMP_{file_prefix}_surf_{step}h.grib2"
+            task_params = {**common_params, "levtype": "sfc", "param": [v["ecmwf"] for k, v in METEO_REGISTRY["surface"].items()]}
+
+        # 3. Execution Layer
+        temp_path, download_ok = os.path.join(temp_dir, temp_name), False
+        for attempt in range(3):
+            try:
+                if os.path.exists(temp_path): os.remove(temp_path)
+                logger.info(f"Downloading {task_name} step {step} (Attempt {attempt+1})")
+                
+                if use_direct_url:
+                    # Bypassing the Client to avoid Step Snapping (192h -> 240h)
+                    with requests.get(direct_url, stream=True, timeout=60) as r:
+                        r.raise_for_status()
+                        with open(temp_path, 'wb') as f:
+                            for chunk in r.iter_content(chunk_size=1024*1024): f.write(chunk)
+                else:
+                    client.retrieve({"date": date_str, "time": f"{cycle:02d}", "target": temp_path, **task_params})
+                
+                if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024: 
+                    download_ok = True; break
+            except Exception as e:
+                logger.warning(f"Download attempt {attempt+1} failed: {str(e)}")
+                time.sleep(2 ** (attempt + 1))
+
+        if not download_ok: all_success = False; continue
+
+        # 4. Processing Layer (Xarray -> Arrow)
+        ds = None
+        try:
+            datasets = cfgrib.open_datasets(temp_path, backend_kwargs={'indexpath': ''})
+            clean_datasets = []
+            for ds_part in datasets:
+                if 'isobaricInhPa' in ds_part.coords and ds_part['isobaricInhPa'].ndim == 0:
+                    ds_part = ds_part.expand_dims('isobaricInhPa')
+                clean_datasets.append(ds_part)
+            
+            ds = xr.merge(clean_datasets) if len(clean_datasets) > 1 else clean_datasets[0]
+            ds = _apply_xarray_canonicalization(ds)
+
+            # Normalization (Handle 'z' to 'gh' conversion)
+            if 'z' in ds.data_vars:
+                if 'gh' not in ds.data_vars: ds = ds.rename({'z': 'gh'})
+                ds['gh'] = ds['gh'] / 9.80665
+            
+            target_var = 'gh' if 'gh' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
+            pa_table, pk_cols = extract_to_arrow(ds, target_var)
+            arrow_tables.append(pa_table)
+            master_pk_cols = pk_cols
+            
+        except Exception:
+            logger.error(f"Processing error at step {step}:\n{traceback.format_exc()}")
+            all_success = False
+        finally:
+            if ds: ds.close()
+            if os.path.exists(temp_path): os.remove(temp_path)
+            
+    # 5. Final Upsert
     if arrow_tables and master_pk_cols and task_name:
         try:
             master_table = pa.concat_tables(arrow_tables)
