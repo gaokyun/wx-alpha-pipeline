@@ -1,2 +1,0 @@
-CREATE DATABASE jupyterhub;
-GRANT ALL PRIVILEGES ON DATABASE jupyterhub TO airflow;

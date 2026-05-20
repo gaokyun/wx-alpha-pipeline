@@ -45,17 +45,27 @@ RUN set -ex \
         duckdb \
         polars \
         pyarrow \
-        deltalake \
+        deltalake  \
         pandas \
         python-magic \
         apache-airflow-providers-amazon \
+        apache-airflow-providers-databricks \
+        apache-airflow-providers-oracle \
+        apache-airflow-providers-mysql \
+        databricks-cli \
         snowflake-connector-python \
         psycopg2-binary \
         sqlalchemy \
         python-dotenv \
         docker \
         --constraint "${CONSTRAINT_URL}" \
-    && pip install --no-cache-dir dbt-core dbt-duckdb dbt-postgres
+    && pip install --no-cache-dir \
+        "deltalake==1.5.1" \
+        "dbt-core~=1.8.0" \
+        "dbt-postgres~=1.8.0" \
+        "dbt-duckdb~=1.8.0" \
+        "dbt-oracle~=1.8.0" \
+    && pip install --no-cache-dir --no-deps "dbt-mysql==1.7.0"
 
 # 2.5 Pre-install DuckDB extensions
 RUN python3 -c "import duckdb; con = duckdb.connect(); con.execute('INSTALL httpfs; INSTALL aws; INSTALL delta;')"
@@ -117,7 +127,18 @@ try:
             """)
             print('✅ AWS Scoped connection enabled.')
 
-    # 3. Tether to JupySQL
+    # 3. SAFELY ATTACH THE PHYSICAL DATA DB (READ_ONLY Mode)
+    # This allows you to query your tables in Jupyter while Airflow writes to them!
+    db_path = '/opt/airflow/data/PHYSICAL_METEOR_DB.duckdb'
+    
+    # Create the file path if it doesn't exist yet so ATTACH doesn't complain
+    if not os.path.exists(db_path):
+        with open(db_path, 'a'): pass
+        
+    con.execute(f"ATTACH '{db_path}' AS meteordb (READ_ONLY);")
+    print(f"💾 Physical meteor DB attached safely as 'meteordb' (Read-Only Mode)")
+
+    # 4. Tether to JupySQL
     ipy = get_ipython()
     if ipy:
         if 'sql' not in ipy.extension_manager.loaded: 
@@ -133,6 +154,58 @@ except Exception as e:
 EOF
 
 RUN chown 50000:0 /home/airflow/.ipython/profile_default/startup/00-duckdb-init.py
+
+RUN cat <<'EOF' > /home/airflow/.ipython/profile_default/startup/05-databricks-init.py
+import os
+import subprocess
+import urllib.parse
+from pathlib import Path
+
+def sync_to_databricks():
+    # 1. Capture Environment Variables from OCI/Airflow Runtime
+    host = os.environ.get('DATABRICKS_HOST', '').strip()
+    token = (os.environ.get('DATABRICKS_TOKEN') or os.environ.get('OCI_SECRET_KEY', '')).strip()
+    oci_key = os.environ.get('OCI_ACCESS_KEY') or os.environ.get('OCI_OBJECT_STORAGE_ACCESS_KEY')
+    oci_secret = os.environ.get('OCI_SECRET_KEY') or os.environ.get('OCI_OBJECT_STORAGE_SECRET_KEY')
+
+    if not host or not token:
+        return
+
+    # 2. Initialize the local CLI config
+    config_path = Path("/home/airflow/.databrickscfg")
+    config_path.write_text(f"[DEFAULT]\nhost = {host}\ntoken = {token}\n")
+    os.chmod(config_path, 0o600)
+
+    # 3. Create Secret Scope and Push OCI Credentials
+    scope = "oci-s3-credentials"
+    
+    # Helper to run CLI commands silently
+    def run_db(cmd):
+        return subprocess.run(cmd, capture_output=True, text=True)
+
+    # Idempotent Create Scope
+    print(f"🔄 Syncing OCI secrets to Databricks scope: {scope}...")
+    run_db(["databricks", "secrets", "create-scope", "--scope", scope])
+
+    # Put Secrets using --string-value for non-interactive execution
+    if oci_key:
+        run_db(["databricks", "secrets", "put", "--scope", scope, "--key", "access-key", "--string-value", oci_key])
+    if oci_secret:
+        run_db(["databricks", "secrets", "put", "--scope", scope, "--key", "secret-key", "--string-value", oci_secret])
+    
+    # 4. Initialize Airflow Connection for DAG use
+    encoded_host = host.replace('https://', '').replace('http://', '')
+    os.environ['AIRFLOW_CONN_DATABRICKS_DEFAULT'] = f"databricks://:{urllib.parse.quote(token)}@{encoded_host}"
+    
+    print(f"✅ Databricks environment ready. Scope '{scope}' updated.")
+
+try:
+    sync_to_databricks()
+except Exception as e:
+    print(f"⚠️ Databricks Setup Warning: {e}")
+EOF
+
+RUN chown 50000:0 /home/airflow/.ipython/profile_default/startup/05-databricks-init.py
 USER 50000
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--", "/entrypoint"]

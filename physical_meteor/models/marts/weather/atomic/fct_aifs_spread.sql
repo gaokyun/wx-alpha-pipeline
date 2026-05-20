@@ -21,7 +21,6 @@ WITH silver_data AS (
         lat_i,
         lon_i,
         pressure_level_hpa,
-        pressure_level_hpa,
         temp_spread_kelvin,
         temp_spread_celsius,
         geopotential_height_spread_m
@@ -52,7 +51,6 @@ SELECT
     lon,
     lat_i,
     lon_i,
-    pressure_level_hpa,
     pressure_level_hpa,
     temp_spread_kelvin,
     temp_spread_celsius,

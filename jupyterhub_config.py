@@ -16,10 +16,26 @@ c.JupyterHub.db_kwargs = {
 c.JupyterHub.spawner_class = 'dockerspawner.DockerSpawner'
 c.DockerSpawner.image = 'custom-weather-jupyter:latest'
 
-# Hub Networking
+# # Hub Networking
+# c.JupyterHub.hub_ip = '0.0.0.0'
+# c.JupyterHub.bind_url = 'http://:8000' # The Proxy (What you browse)
+# c.JupyterHub.hub_bind_url = 'http://0.0.0.0:8081' # The Internal API
+# c.JupyterHub.hub_connect_ip = 'jupyterhub'
+# c.JupyterHub.hub_port = 8081
+
+# --- Networking Configuration ---
+# The public-facing port (where the Proxy lives)
+c.JupyterHub.ip = '0.0.0.0'
+c.JupyterHub.port = 8000 
+# The internal API port (where the Hub service lives)
+# We use 8081 to avoid any potential conflict with Airflow's 8080
 c.JupyterHub.hub_ip = '0.0.0.0'
-c.JupyterHub.hub_connect_ip = 'jupyterhub'
 c.JupyterHub.hub_port = 8080
+# How the Proxy and Spawner find the Hub
+c.JupyterHub.hub_connect_ip = 'jupyterhub' 
+# Explicitly set the base URL to ensure redirects work
+c.JupyterHub.base_url = '/'
+
 
 # Spawner Networking
 c.DockerSpawner.network_name = os.environ.get('DOCKER_NETWORK_NAME', 'default')

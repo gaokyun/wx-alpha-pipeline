@@ -129,7 +129,7 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
-      - ./jupyterhub_init_db.sql:/docker-entrypoint-initdb.d/init-db.sql # This runs on first boot
+      - ./postgres_init_db.sql:/docker-entrypoint-initdb.d/init-db.sql # This runs on first boot
     ports:
       - "5432:5432"
     healthcheck:
@@ -220,7 +220,7 @@ services:
       - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
     ports:
-      - "8000:8000"
+      - "9330:8000"
     networks:
       - default
 
@@ -242,7 +242,7 @@ services:
     working_dir: /opt/airflow
     user: "50000:0"  
     ports:
-      - "9330:9330"
+      - "9331:9331"
     volumes:
       - /home/airflow/dev/notebooks:/home/airflow/work
       - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data

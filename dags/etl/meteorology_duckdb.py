@@ -222,8 +222,8 @@ def extract_to_arrow(ds, target_var):
 # ==============================================================================
 # RAW LAYER: DELTA LAKE ON OCI OBJECT STORAGE
 # ==============================================================================
-def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
-    """Idempotent Delta Lake ingestion with automatic Schema Evolution."""
+def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options, table_config=None):
+    """Idempotent Delta Lake ingestion with automatic Schema Evolution and Iceberg UniForm metadata generation."""
     partition_cols = ["forecast_date", "forecast_cycle"]
     
     try:
@@ -234,16 +234,28 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
             table_exists = False
         else: raise e
 
+    # --- INITIALIZATION BLOCK (Where UniForm properties must be bound) ---
     if not table_exists:
-        logger.warning(f"⚠️ Initializing NEW Delta Table at: {delta_table_path}")
+        logger.warning(f"⚠️ Initializing NEW Delta Table with Iceberg UniForm at: {delta_table_path}")
+        
+        # Core performance properties blended with mandatory Iceberg metadata hooks
+        unified_init_config = {
+            "delta.logRetentionDuration": "interval 3 days",
+            "delta.checkpointInterval": "5",
+            "delta.isolationLevel": "SnapshotIsolation",
+            "delta.columnMapping.mode": "name",                 # Mandatory for Iceberg compatibility
+            "delta.universalFormat.enabledFormats": "iceberg",      # Async Iceberg metadata trigger
+            "delta.enableIcebergCompatV1": "true"               # Standard open engine compliance
+        }
+        
+        # Catch any unexpected down-stream manual overrides if passed
+        if table_config:
+            unified_init_config.update(table_config)
+
         write_deltalake(
             delta_table_path, pa_table, mode="append",
             partition_by=partition_cols, storage_options=storage_options,
-            configuration={
-                "delta.logRetentionDuration": "interval 3 days",
-                "delta.checkpointInterval": "5",
-                "delta.isolationLevel": "SnapshotIsolation"
-            }
+            configuration=unified_init_config
         )
         return
 
@@ -252,18 +264,16 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
     target_cols = set(target_pa_schema.names)
     source_cols = set(pa_table.column_names)
     
-    evolve_schema = False # Flag to trigger schema merge
+    evolve_schema = False 
 
     if target_cols != source_cols:
         extra_in_batch = source_cols - target_cols
         missing_in_batch = target_cols - source_cols
         
-        # --- CHANGE 1: Handle Extra Columns (Schema Evolution) ---
         if extra_in_batch:
             logger.warning(f"✨ Schema Evolution Detected: Adding columns {extra_in_batch}")
             evolve_schema = True 
         
-        # Handle missing columns by padding with nulls (keep existing functionality)
         if missing_in_batch:
             logger.info("ℹ️ Padding missing columns with nulls to match Delta schema...")
             for col in missing_in_batch:
@@ -271,9 +281,7 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
                 pa_table = pa_table.append_column(col, null_arr)
             source_cols = set(pa_table.column_names)
 
-    # --- CHANGE 2: Dynamic Column Selection ---
-    # We no longer strictly select target_pa_schema.names because that would drop the new 'gh' column.
-    # Instead, we ensure all existing target columns are present (padded above) and include new ones.
+    # --- DYNAMIC COLUMN SELECTION ---
     all_final_cols = list(target_pa_schema.names) + list(source_cols - target_cols)
     pa_table = pa_table.select(all_final_cols)
 
@@ -293,7 +301,7 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
     except Exception as e:
         logger.warning(f"⚠️ Delete predicate failed: {e}")
 
-    # --- CHANGE 3: Write with schema_mode="merge" if evolution is needed ---
+    # --- WRITE BACK WITH SCHEMA MERGE TRACKER ---
     logger.info(f"✅ Appending {pa_table.num_rows} rows to Delta Lake...")
     write_deltalake(
         delta_table_path,
@@ -301,10 +309,11 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
         mode="append",
         partition_by=partition_cols,
         storage_options=storage_options,
-        schema_mode="merge" if evolve_schema else None # Critical for fixing the error
+        configuration=table_config,  
+        schema_mode="merge" if evolve_schema else None 
     )
     
-    # --- STORAGE MAINTENANCE ---
+    # --- STORAGE MAINTENANCE (CRITICAL FOR WILD-CARD QUERIES) ---
     try:
         logger.info(f"🧹 Vacuuming tombstoned files...")
         dt_clean = DeltaTable(delta_table_path, storage_options=storage_options)
@@ -312,7 +321,7 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options):
         logger.info(f"✨ Storage cleaned. Physically deleted: {len(deleted_files)} files.")
     except Exception as e:
         logger.warning(f"⚠️ Vacuum failed (non-critical): {e}")
-
+        
 # ==============================================================================
 # DUCKDB WAREHOUSE ENGINE (SILVER & GOLD)
 # ==============================================================================
@@ -592,7 +601,18 @@ def download_gfs_robust(date_obj, cycle, steps, task_type='upper'):
                 "AWS_ENDPOINT_URL": weather_config.OCI_ENDPOINT,
                 "AWS_S3_ADDRESSING_STYLE": "path"
             }
-            upsert_weather_data(master_table, master_pk_cols, delta_table_oci_path, storage_options)
+            # ✅ NEW: Apache Iceberg UniForm Table Properties
+            iceberg_uniform_config = {
+                "delta.columnMapping.mode": "name",
+                "delta.universalFormat.enabledFormats": "iceberg",
+                "delta.enableIcebergCompatV1": "true"
+            }
+            upsert_weather_data(master_table, 
+                                master_pk_cols, 
+                                delta_table_oci_path, 
+                                storage_options, 
+                                table_config=iceberg_uniform_config # <--- Added here
+                                )
             build_duckdb_silver_layer(task_name, delta_table_oci_path)
         except Exception as e:
             logger.error(f"❌ Batch Upsert Failed: {e}"); all_success = False
@@ -625,169 +645,6 @@ def ecmwf_file_exists(url):
         return True
     except Exception:
         return False
-
-def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'): 
-    """ECMWF Unified Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake on OCI Object Storage)"""
-    
-    client = Client("ecmwf", beta=False)
-    date_str = pendulum.instance(date_obj).format("YYYYMMDD")
-    cycle_str = f"{cycle:02d}z"
-    if not isinstance(steps, (list, tuple)): steps = [steps]
-        
-    temp_dir = os.path.join(weather_config.BASE_DIR, "Data", "Temp_Global_Buffer")
-    os.makedirs(temp_dir, exist_ok=True)
-    
-    model_type = target_model.upper()
-    arrow_tables, master_pk_cols, task_name, all_success = [], None, None, True
-
-    for step in steps:
-        time.sleep(random.uniform(0.5, 2.0))
-
-        task_dict = None
-        if model_type == 'AIFS':
-            common_params = {"class": "od", "stream": "oper", "type": "fc", "model": "aifs-single", "step": step}
-            file_prefix = "at_aifs"
-        elif model_type == 'IFS':
-            common_params = {"class": "od", "stream": "oper", "type": "fc", "levtype": "pl", "step": step}
-            file_prefix = "at_ifs"   
-        else: return False
-
-        # if task_type == 'spread':
-        #     # --- CHANGE 1: Use registry to define params for spread to ensure alignment ---
-        #     spread_params = []
-        #     for k in ["gh", "t"]:
-        #         p = METEO_REGISTRY["upper"][k]["ecmwf"]
-        #         spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
-            
-        #     task_dict = {"name": f"{model_type.lower()}_spread", "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
-        #                  "params": {"class": "od", "stream": "enfo", "type": "es", "levtype": "pl", 
-        #                             "levelist": [500, 850], "param": list(set(spread_params)), "step": step}}
-        #     # ------------------------------------------------------------------------------
-
-        if task_type == 'spread':
-            # ... CHANGE 1: Your registry logic ...
-            spread_params = []
-            for k in ["gh", "t"]:
-                p = METEO_REGISTRY["upper"][k]["ecmwf"]
-                spread_params.extend(p) if isinstance(p, list) else spread_params.append(p)
-            
-            # Define the model specifically for the AI ensemble
-            # 'aifs-ens' is the only one that supports type 'es' with 6-hourly steps
-            target_model_name = "aifs-ens" if model_type == 'AIFS' else "ifs"
-
-            task_dict = {
-                "name": f"{model_type.lower()}_spread", 
-                "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
-                "params": {
-                    "class": "od", 
-                    "model": target_model_name,  # <--- CRITICAL: Fixes the step snapping
-                    "stream": "enfo", 
-                    "type": "ep", 
-                    "levtype": "pl", 
-                    "levelist": [500, 850], 
-                    "param": list(set(spread_params)), 
-                    "step": step
-                }
-            }
-
-        # if task_type == 'spread':
-        #     task_dict = {
-        #         "name": f"{model_type.lower()}_spread", 
-        #         "temp_name": f"TEMP_{model_type}_{step}h.grib2", 
-        #         "params": {
-        #             "class": "od", 
-        #             "stream": "enfo", 
-        #             "type": "es", 
-        #             "levtype": "pl", 
-        #             "levelist": [250, 500, 850], # Added 250
-        #             "param": ['z', 't', 'u', 'v'], # Added Wind components for 250hPa Jet Spread
-        #             "step": step
-        #         }
-        #     }
-
-        elif task_type == 'upper':
-            short_names = []
-            for p in [v["ecmwf"] for k, v in METEO_REGISTRY["upper"].items()]:
-                short_names.extend(p) if isinstance(p, list) else short_names.append(p)
-            task_dict = {"name": f"{file_prefix}_upper", "temp_name": f"TEMP_{file_prefix}_upper_{step}h.grib2",
-                         "params": {**common_params, "levtype": "pl", "levelist": [850, 500, 250], "param": list(set(short_names))}}
-        elif task_type == 'surface':
-            task_dict = {"name": f"{file_prefix}_surface", "temp_name": f"TEMP_{file_prefix}_surf_{step}h.grib2",
-                         "params": {**common_params, "levtype": "sfc", "param": [v["ecmwf"] for k, v in METEO_REGISTRY["surface"].items()]}}
-
-        if task_dict:
-            task_name, temp_path, download_ok = task_dict['name'], os.path.join(temp_dir, task_dict['temp_name']), False
-            # --- FIX 2: Better Retry Logic and Error Logging ---
-            for attempt in range(3):
-                try:
-                    logger.info(f"Downloading {task_name} step {step} (Attempt {attempt+1})")
-                    client.retrieve({"date": date_str, "time": f"{cycle:02d}", "target": temp_path, **task_dict['params']})
-                    
-                    if os.path.exists(temp_path) and os.path.getsize(temp_path) > 1024: 
-                        download_ok = True
-                        break
-                except Exception as e:
-                    logger.warning(f"Download failed for step {step}: {str(e)}")
-                    time.sleep(2 ** (attempt + 1) + random.random()) # Exponential backoff with jitter
-
-            if not download_ok: all_success = False; continue
-
-            ds = None
-            try:
-                # --- FIX 3: Robust GRIB Loading ---
-                # indexpath='' prevents the creation of .idx files which can cause race conditions in parallel
-                datasets = cfgrib.open_datasets(temp_path, backend_kwargs={'indexpath': ''})
-                
-                clean_datasets = []
-                for ds_part in datasets:
-                    if 'isobaricInhPa' in ds_part.coords and ds_part['isobaricInhPa'].ndim == 0:
-                        ds_part = ds_part.expand_dims('isobaricInhPa')
-                    clean_datasets.append(ds_part)
-                
-                ds = xr.merge(clean_datasets) if len(clean_datasets) > 1 else clean_datasets[0]
-                ds = _apply_xarray_canonicalization(ds)
-
-                # --- FIX 4: Defensive Param Check (Handling 'z' Warning) ---
-                if 'z' in ds.data_vars:
-                    logger.info(f"{ds.data_vars} Start processing...")
-                    if 'gh' not in ds.data_vars:
-                        ds = ds.rename({'z': 'gh'})
-                    ds['gh'] = ds['gh'] / 9.80665
-                    # ds['gh'].attrs['units'] = 'gpm'
-                
-                target_var = 'gh' if 'gh' in ds.data_vars else ('msl' if 'msl' in ds.data_vars else None)
-
-                if target_var is None:
-                    raise KeyError(f"Expected variables (gh/msl) not found in dataset. Available: {list(ds.data_vars)}")
-
-                pa_table, pk_cols = extract_to_arrow(ds, target_var)
-                arrow_tables.append(pa_table)
-                master_pk_cols = pk_cols
-                
-            except Exception:
-                # --- FIX 5: Capture the Traceback ---
-                logger.error(f"Processing error at step {step}:\n{traceback.format_exc()}")
-                all_success = False
-            finally:
-                if ds: ds.close()
-                if os.path.exists(temp_path): os.remove(temp_path)
-        
-    if arrow_tables and master_pk_cols and task_name:
-        try:
-            master_table = pa.concat_tables(arrow_tables)
-            delta_table_oci_path = f"s3://{weather_config.OCI_BUCKET}/weather_data/delta_lake/ecmwf_raw/{task_name}/"
-            storage_options = {
-                "AWS_ACCESS_KEY_ID": weather_config.OCI_ACCESS_KEY,
-                "AWS_SECRET_ACCESS_KEY": weather_config.OCI_SECRET_KEY,
-                "AWS_REGION": weather_config.OCI_REGION,
-                "AWS_ENDPOINT_URL": weather_config.OCI_ENDPOINT,
-                "AWS_S3_ADDRESSING_STYLE": "path"
-            }
-            upsert_weather_data(master_table, master_pk_cols, delta_table_oci_path, storage_options)
-            build_duckdb_silver_layer(task_name, delta_table_oci_path)
-        except Exception: all_success = False
-            
-    return all_success
 
 def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'):
     """Hybrid ECMWF Downloader: Client for IFS, Direct URL for AIFS-ENS Spread"""
@@ -942,7 +799,17 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
                 "AWS_ENDPOINT_URL": weather_config.OCI_ENDPOINT,
                 "AWS_S3_ADDRESSING_STYLE": "path"
             }
-            upsert_weather_data(master_table, master_pk_cols, delta_table_oci_path, storage_options)
+            iceberg_uniform_config = {
+                "delta.columnMapping.mode": "name",
+                "delta.universalFormat.enabledFormats": "iceberg",
+                "delta.enableIcebergCompatV1": "true"
+            }
+            upsert_weather_data(master_table, 
+                                master_pk_cols, 
+                                delta_table_oci_path, 
+                                storage_options, 
+                                table_config=iceberg_uniform_config # <--- Added here
+                                )
             build_duckdb_silver_layer(task_name, delta_table_oci_path)
         except Exception: all_success = False
             
