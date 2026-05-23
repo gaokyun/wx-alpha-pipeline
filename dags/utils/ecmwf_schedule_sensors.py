@@ -21,8 +21,7 @@ def check_ecmwf_product_ready(**kwargs):
         soup = BeautifulSoup(response.text, 'html.parser')
         # Look for the last expected file (e.g., 240h) to ensure the run is COMPLETE
         # Senior Tip: Don't just check if the folder exists; check if it's finished!
-        rows = soup.find_all('tr')
-        files = [row.find('td').text.strip() for row in rows if row.find('td')]
+        files = [a.get('href') for a in soup.find_all('a') if a.get('href')]
         
         target_file = "240h-oper-fc.grib2" if "single" in product_path else "240h-enfo-fc.grib2"
         

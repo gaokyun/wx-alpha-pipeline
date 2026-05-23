@@ -27,8 +27,8 @@ renamed_and_casted AS (
 
         -- Fixed-Point Integer Indices
         -- Shift by 90/360 to ensure positive values, then scale to remove decimals
-        COALESCE(CAST((latitude + 90) * 100 AS INTEGER), -1) AS lat_i,
-        COALESCE(CAST((longitude + 360) * 100 AS INTEGER), -1) AS lon_i,
+        COALESCE(CAST(ROUND((latitude + 90) * 1000) AS INTEGER), -1) AS lat_i,
+        COALESCE(CAST(ROUND((longitude + 180) * 1000) AS INTEGER), -1) AS lon_i,
         -- 3. Meteorological Parameters
         -- Temperature and Dewpoint (Converted from Kelvin to Celsius)
         CAST(t2m AS FLOAT) AS temp_2m_kelvin,

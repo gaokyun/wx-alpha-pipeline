@@ -2,7 +2,7 @@
     config(
         materialized='incremental',
         partition_by=['cycle_date', 'cycle_hour'],
-        unique_key=['cycle_date', 'cycle_hour', 'forecast_step_hours', 'lat_i', 'lon_i'],
+        unique_key=['cycle_date', 'cycle_hour', 'forecast_step_hours', 'lat_i', 'lon_i', 'pressure_level_hpa'],
         tags=["atomic_marts"]
     )
 }}

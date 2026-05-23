@@ -17,14 +17,6 @@ snapshot-paths: ["snapshots"]
 on-run-start:
   - "SET temp_directory = '/opt/airflow/data/duckdb_tmp/';"
   - "SET max_temp_directory_size = '10GB';"
-
-clean-targets:         # directories to be removed by `dbt clean`
-  - "target"
-  - "dbt_packages"
-
-# dbt_project.yml
-
-  # This block will ONLY execute when running against DuckDB
   - >
     {% if target.type == 'duckdb' %}
       INSTALL httpfs; LOAD httpfs;
@@ -40,6 +32,11 @@ clean-targets:         # directories to be removed by `dbt clean`
       SELECT 1;
     {% endif %}
 
+clean-targets:         # directories to be removed by `dbt clean`
+  - "target"
+  - "dbt_packages"
+
+# dbt_project.yml
 
 seeds:
   physical_meteor:  

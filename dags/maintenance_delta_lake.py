@@ -59,11 +59,11 @@ def delta_maintenance_pipeline():
             try:
                 dt = DeltaTable(table_path, storage_options=storage_options)
 
-                partitions = dt.partitions()
+                unique_dates = dt.to_pyarrow_dataset().to_table(columns=["forecast_date"]).column("forecast_date").unique().to_pylist()
                 targets = sorted({
-                    p["forecast_date"]
-                    for p in partitions
-                    if p["forecast_date"] < cutoff_string
+                    d
+                    for d in unique_dates
+                    if d is not None and d < cutoff_string
                 })
 
                 # --- NEW LOGIC ADDED HERE ---

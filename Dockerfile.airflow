@@ -1,5 +1,5 @@
-# Switched to the latest stable 2.11.2 release
-FROM apache/airflow:2.11.2-python3.11 AS base
+# Switched to Apache Airflow 3.2.1
+FROM apache/airflow:3.2.1-python3.11 AS base
 
 USER root
 
@@ -45,13 +45,17 @@ RUN set -ex \
         duckdb \
         polars \
         pyarrow \
-        deltalake  \
+        deltalake \
+        "pyiceberg[sql-sqlite,s3fs,pyarrow]" \
         pandas \
         python-magic \
-        apache-airflow-providers-amazon \
-        apache-airflow-providers-databricks \
-        apache-airflow-providers-oracle \
-        apache-airflow-providers-mysql \
+        "apache-airflow-providers-amazon==9.25.0" \
+        "apache-airflow-providers-databricks==7.12.1" \
+        "apache-airflow-providers-oracle==4.5.3" \
+        "apache-airflow-providers-mysql==6.5.2" \
+        "apache-airflow-providers-docker==4.5.5" \
+        "apache-airflow-providers-snowflake==6.12.1" \
+        "apache-airflow-providers-postgres==6.6.3" \
         databricks-cli \
         snowflake-connector-python \
         psycopg2-binary \

@@ -1,5 +1,6 @@
 import os
 from urllib.parse import quote_plus
+# from torrent_forward_fix import TorFwdFix if os.path.exists('torrent_forward_fix.py') else None
 
 c = get_config()  # noqa: F821
 
@@ -118,3 +119,22 @@ c.JupyterHub.authenticator_class = 'nativeauthenticator.NativeAuthenticator'
 c.Authenticator.admin_users = {'admin'}
 c.Authenticator.allowed_users = {'admin', 'yunkgao', 'gaokyun'}
 c.NativeAuthenticator.open_signup = True
+
+# Tell JupyterHub to trust connections coming from the local Docker bridge gateway
+c.JupyterHub.trusted_downstream_ips = ['127.0.0.1', 'localhost', '172.20.0.1']
+
+# Clean up proxy startup command (drop the invalid redirect flag)
+c.ConfigurableHTTPProxy.command = ['configurable-http-proxy']
+
+# Safe conditional import block
+import os
+if os.path.exists('torrent_forward_fix.py'):
+    from torrent_forward_fix import TorFwdFix
+
+c.JupyterHub.tornado_settings = {
+    'headers': {
+        'Content-Security-Policy': "frame-ancestors 'self' https://*.yunkgao.com;",
+    },
+    # Crucial: Forces Tornado to evaluate and trust Cloudflare's X-Forwarded-For headers
+    'trusted_proxies': True 
+}
