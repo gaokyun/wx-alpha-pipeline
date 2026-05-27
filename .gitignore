@@ -1,6 +1,7 @@
 # Secrets & Configs
 .env
 .env/
+.config/
 .user.yml
 # docker-compose.yaml
 # dockerfile.*

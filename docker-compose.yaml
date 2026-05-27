@@ -91,6 +91,9 @@ x-airflow-common: &airflow-common
     OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
     OCI_NAMESPACE: ${OCI_OBJECT_STORAGE_NAMESPACE}
 
+    DATABRICKS_HOST: ${DATABRICKS_HOST}
+    DATABRICKS_TOKEN: ${DATABRICKS_TOKEN}
+
     POSTGRES_USERNAME: ${POSTGRES_USERNAME}
     POSTGRES_PASS: ${POSTGRES_PASS}
     POSTGRES_DB: ${POSTGRES_DB}
@@ -281,6 +284,14 @@ services:
     volumes:
       - /home/airflow/dev/wx-alpha-pipeline/config/xtable:/opt/xtable/config
       # - /home/airflow/dev/wx-alpha-pipeline/data/xtable:/opt/xtable/data
+    environment:
+      - AWS_ACC_KEY=${AWS_ACC_KEY}
+      - AWS_SECRET_KEY=${AWS_SECRET_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - OCI_OBJECT_STORAGE_BUCKET=${OCI_OBJECT_STORAGE_BUCKET}
+      - OCI_OBJECT_STORAGE_ACCESS_KEY=${OCI_OBJECT_STORAGE_ACCESS_KEY}
+      - OCI_OBJECT_STORAGE_SECRET_KEY=${OCI_OBJECT_STORAGE_SECRET_KEY}
+    entrypoint: ["/bin/sh", "/opt/xtable/config/run_sync.sh"]
 
   harlequin-duckdb:
     build:

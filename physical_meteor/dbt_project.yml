@@ -15,10 +15,10 @@ macro-paths: ["macros"]
 snapshot-paths: ["snapshots"]
 
 on-run-start:
-  - "SET temp_directory = '/opt/airflow/data/duckdb_tmp/';"
-  - "SET max_temp_directory_size = '10GB';"
   - >
     {% if target.type == 'duckdb' %}
+      SET temp_directory = '/opt/airflow/data/duckdb_tmp/';
+      SET max_temp_directory_size = '10GB';
       INSTALL httpfs; LOAD httpfs;
       INSTALL aws; LOAD aws;
       INSTALL delta; LOAD delta;

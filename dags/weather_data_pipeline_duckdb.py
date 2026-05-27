@@ -4,10 +4,12 @@ import pendulum
 from bs4 import BeautifulSoup
 
 from airflow.sdk import dag, task, Asset
-from airflow.operators.bash import BashOperator
+from airflow.providers.docker.operators.docker import DockerOperator
+from docker.types import Mount
 
 OCI_BUCKET = os.getenv('OCI_OBJECT_STORAGE_BUCKET', 'oci-s3-ykg-storage')
 DBT_PROJECT_PATH = os.getenv('DBT_PROJECT_PATH', '/opt/airflow/physical_meteor')
+HOST_PROJECT_PATH = os.getenv('HOST_PROJECT_PATH', '/home/airflow/dev/wx-alpha-pipeline')
 
 DUCKDB_POOL = 'duckdb_single_writer'
 
@@ -231,15 +233,31 @@ for model_id, config in WEATHER_MODELS.items():
 def refresh_unified_forecasts_v2():
 
     def dbt_task(task_id, select_statement):
-        return BashOperator(
+        return DockerOperator(
             task_id=task_id,
+            image="dbt-duckdb:latest",
+            api_version="auto",
+            auto_remove="success",
+            mount_tmp_dir=False,
+            network_mode="wx-alpha-pipeline_default",
+            mounts=[
+                Mount(
+                    source=f"{HOST_PROJECT_PATH}/physical_meteor",
+                    target="/usr/app/physical_meteor",
+                    type="bind",
+                ),
+                Mount(
+                    source=f"{HOST_PROJECT_PATH}/data",
+                    target="/opt/airflow/data",
+                    type="bind",
+                ),
+            ],
+            environment={
+                "OCI_ACCESS_KEY": os.getenv("OCI_ACCESS_KEY"),
+                "OCI_SECRET_KEY": os.getenv("OCI_SECRET_KEY"),
+            },
+            command=f"dbt run --project-dir /usr/app/physical_meteor --profiles-dir /usr/app/physical_meteor --target dev_duckdb --select {select_statement}",
             pool=DUCKDB_POOL,
-            bash_command=f"""
-                dbt run --project-dir {DBT_PROJECT_PATH} \\
-                        --profiles-dir {DBT_PROJECT_PATH} \\
-                        --target dev_duckdb \\
-                        --select {select_statement}
-            """
         )
 
     stg_refresh = dbt_task('refresh_silver_layer', 'tag:silver')
