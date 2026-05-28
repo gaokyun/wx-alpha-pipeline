@@ -14,7 +14,7 @@ renamed_and_casted AS (
     SELECT
         -- 1. Temporal Metadata
         CAST(forecast_reference_time AS DATE) AS cycle_date,
-        EXTRACT(HOUR FROM forecast_reference_time) AS cycle_hour,
+        CAST(forecast_cycle AS INTEGER) AS cycle_hour,
         
         CAST(step_hours AS INTEGER) AS forecast_step_hours,
         

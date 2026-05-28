@@ -16,8 +16,6 @@ SELECT
     forecast_step_hours,
     valid_date,
     valid_hour,
-    lat,
-    lon,
     lat_i,
     lon_i,
  
@@ -39,7 +37,7 @@ FROM {{ ref('stg_ecmwf_ifs_surface') }}
 
 {% if is_incremental() %}
     -- 1. Static Filter (Fast Partition Pruning)
-    WHERE cycle_date >= CURRENT_DATE - INTERVAL 1 DAY
+    WHERE cycle_date >= CURRENT_DATE - INTERVAL 4 DAY
     
     -- 2. Dynamic Filter (Precision)
     AND (cycle_date + (cycle_hour * INTERVAL '1 hour')) > (

@@ -4,12 +4,20 @@ physical_meteor:
   outputs:
     dev_duckdb:
       type: duckdb
-      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/PHYSICAL_METEOR_DB.duckdb') }}"
+      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/local_catalog.duckdb') }}"
       threads: 1  # <--- THIS MUST BE 1
       extensions:
         - httpfs
         - delta
         - aws
+        - postgres
+      
+      # Attach PostgreSQL database to stream Gold models directly
+      attach:
+        - path: "postgresql://{{ env_var('POSTGRES_USERNAME', 'airflow') }}:{{ env_var('POSTGRES_PASS', 'airflow') }}@postgres:5432/PHYSICAL_METEOR_DB"
+          type: postgres
+          alias: PHYSICAL_METEOR_DB
+
       
       # ✅ THE FIX: Use the dedicated 'secrets' array
       secrets:

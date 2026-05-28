@@ -48,29 +48,33 @@ seeds:
 models:
   physical_meteor:
     
-    # --- SILVER LAYER ---
-    staging:
-      +materialized: view
-      +schema: silver      # Results in: main_silver (DuckDB default)
-      gfs:
-        +tags: ["gfs", "silver", "staging"]
-      ecmwf:
-        +tags: ["ecmwf", "silver", "staging"]
+    # --- LOCAL DUCKDB-POSTGRES HYBRID (DPH) ---
+    dph:
+      # --- SILVER LAYER ---
+      staging:
+        +materialized: view
+        +schema: silver      # Results in: main_silver (DuckDB default)
+        gfs:
+          +tags: ["gfs", "silver", "staging"]
+        ecmwf:
+          +tags: ["ecmwf", "silver", "staging"]
 
-    # --- GOLD LAYER ---
-    marts:
-      weather:
-        # 1. The "Kitchen" (Where the atomic tables are cooked)
-        atomic:
-          +schema: gold
-          +materialized: incremental
-          +incremental_strategy: delete+insert #insert_overwrite
-          +tags: ["marts", "gold", "atomic"]
-        
-        # 2. The "Dining Room" (The only thing users see)
-        fct_unified_forecast:
-          +schema: gold      # Results in: main_gold
-          +materialized: view
-          +tags: ["unified", "gold", "marts"]
+      # --- GOLD LAYER ---
+      marts:
+        +database: PHYSICAL_METEOR_DB # All marts write to PostgreSQL
+        weather:
+          # 1. The "Kitchen" (Where the atomic tables are cooked)
+          atomic:
+            +schema: gold
+            +materialized: incremental
+            +incremental_strategy: delete+insert #insert_overwrite
+            +tags: ["marts", "gold", "atomic"]
+          
+          # 2. The "Dining Room" (The only thing users see)
+          fct_unified_forecast:
+            +schema: gold      # Results in: main_gold (custom gold schema in postgres)
+            +materialized: table
+            +tags: ["unified", "gold", "marts"]
+
 
   

@@ -255,6 +255,8 @@ def refresh_unified_forecasts_v2():
             environment={
                 "OCI_ACCESS_KEY": os.getenv("OCI_ACCESS_KEY"),
                 "OCI_SECRET_KEY": os.getenv("OCI_SECRET_KEY"),
+                "POSTGRES_USERNAME": os.getenv("POSTGRES_USERNAME", "airflow"),
+                "POSTGRES_PASS": os.getenv("POSTGRES_PASS", "airflow"),
             },
             command=f"dbt run --project-dir /usr/app/physical_meteor --profiles-dir /usr/app/physical_meteor --target dev_duckdb --select {select_statement}",
             pool=DUCKDB_POOL,

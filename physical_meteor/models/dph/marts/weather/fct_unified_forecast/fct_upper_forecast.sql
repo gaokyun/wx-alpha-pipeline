@@ -1,4 +1,4 @@
-{{ config(schema='gold', materialized='view') }}
+{{ config(schema='gold', materialized='table') }}
 
 SELECT * FROM {{ ref('fct_gfs_upper') }}
 UNION ALL
