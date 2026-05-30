@@ -1,4 +1,4 @@
-{{ config(schema='gold', materialized='table') }}
+{{ config(schema='gold', materialized='view') }}
 
 SELECT surrogate_merge_key,
         weather_model,
@@ -7,8 +7,6 @@ SELECT surrogate_merge_key,
         forecast_step_hours,
         valid_date,
         valid_hour,
-        lat,
-        lon,
         lat_i,
         lon_i,
         pressure_level_hpa,
@@ -24,8 +22,6 @@ SELECT surrogate_merge_key,
     forecast_step_hours,
     valid_date,
     valid_hour,
-    lat,
-    lon,
     lat_i,
     lon_i,
 

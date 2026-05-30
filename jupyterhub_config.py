@@ -75,7 +75,10 @@ c.DockerSpawner.environment = {
     'OCI_REGION': os.environ.get('OCI_REGION', 'us-ashburn-1'),
     'AWS_ACCESS_KEY_ID': os.environ.get('AWS_ACCESS_KEY_ID', ''),
     'AWS_SECRET_ACCESS_KEY': os.environ.get('AWS_SECRET_ACCESS_KEY', ''),
-    'AWS_REGION': os.environ.get('AWS_REGION', 'us-east-1')
+    'AWS_REGION': os.environ.get('AWS_REGION', 'us-east-1'),
+    'ORACLE_MH_PASSWORD': os.environ.get('ORACLE_MH_PASSWORD', ''),
+    'MYSQL_HOST': os.environ.get('MYSQL_HOST', ''),
+    'MYSQL_USER': os.environ.get('MYSQL_USER', '')
 }
 
 # --- 4. Persistence ---

@@ -1,17 +1,21 @@
 # Custom image for running dbt commands
-FROM python:3.11-slim
+# Use an explicit multi-arch slim Python base image
+FROM --platform=$BUILDPLATFORM python:3.11-slim
 
 RUN apt-get update && apt-get install -y \
     git \
     gcc \
     python3-dev \
     libpq-dev \
-    && rm -rf /var/lib/apt/lists/*# install dbt-postgres which pulls in the matching core version
+    && rm -rf /var/lib/apt/lists/* # install dbt-postgres which pulls in the matching core version
 
 # pinned to 1.10.0 because that is the last series available in PyPI
+# Upgrade pip and install dbt-postgres natively on this CPU
+RUN pip install --no-cache-dir --upgrade pip
 RUN pip install --no-cache-dir "dbt-postgres==1.10.0"
 
 WORKDIR /usr/app
 
 # entrypoint will be overridden by compose; keeping /bin/bash as default
-ENTRYPOINT ["bash"]
+CMD ["bash"]
+

@@ -5,6 +5,10 @@ physical_meteor:
     dev_duckdb:
       type: duckdb
       path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/local_catalog.duckdb') }}"
+      
+      # 🔴 ADD THIS KEY LINE:
+      database: local_catalog
+
       threads: 1  # <--- THIS MUST BE 1
       extensions:
         - httpfs
@@ -12,12 +16,11 @@ physical_meteor:
         - aws
         - postgres
       
-      # Attach PostgreSQL database to stream Gold models directly
+      # 🟢 THE NATIVE FIX: Globally scoped attach block with strict LOWERCASE alias
       attach:
         - path: "postgresql://{{ env_var('POSTGRES_USERNAME', 'airflow') }}:{{ env_var('POSTGRES_PASS', 'airflow') }}@postgres:5432/PHYSICAL_METEOR_DB"
           type: postgres
           alias: PHYSICAL_METEOR_DB
-
       
       # ✅ THE FIX: Use the dedicated 'secrets' array
       secrets:
@@ -41,12 +44,35 @@ physical_meteor:
         # Limits how many parallel range-requests DuckDB makes per file
         max_memory: '12GB' # Leave some headroom for the OS and Airflow
 
-      # # ✅ ADD the 'secrets' block
-      # secrets:
-      #   - type: s3
-      #     region: "{{ env_var('AWS_REGION') }}"
-      #     key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
-      #     secret: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+    dev_duckdb_mysql:
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/local_catalog.duckdb') }}"
+      database: local_catalog
+      threads: 1
+      extensions:
+        - httpfs
+        - delta
+        - aws
+        - mysql
+      attach:
+        - path: "host={{ env_var('MYSQL_HOST', '10.0.1.58') }} user=admin password={{ env_var('ORACLE_PASSWORD') }} port=3306 db=PHYSICAL_METEOR_GOLD"
+          type: mysql
+          alias: PHYSICAL_METEOR_GOLD
+      secrets:
+        - type: s3
+          key_id: "{{ env_var('OCI_ACCESS_KEY') }}"
+          secret: "{{ env_var('OCI_SECRET_KEY') }}"
+          region: "us-ashburn-1"
+          endpoint: "idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com"
+          url_style: "path"
+          use_ssl: true
+      settings:
+        parquet_metadata_cache: true
+        http_retries: 5
+        http_retry_backoff: 2
+        memory_limit: '4GB'
+        threads: 1
+        max_memory: '12GB'
 
     # -------------------------------------------------------------------------
     # LEGACY / ALTERNATIVE TARGETS
@@ -78,6 +104,7 @@ physical_meteor:
       user: "{{ env_var('ORACLE_USER', 'PHYSICAL_METEOR_RAW') }}"
       pass: "{{ env_var('ORACLE_PASSWORD', '***REMOVED***') }}"
       connection_string: "(description=(address=(protocol=tcps)(port=1522)(host={{ env_var('ORACLE_HOST', 'adb.us-ashburn-1.oraclecloud.com') }}))(connect_data=(service_name={{ env_var('ORACLE_SERVICE', 'g6fd1d6c71405c0_meteor0ykg0aidw_high.adb.oraclecloud.com') }}))(security=(ssl_server_dn_match=no)))"
+      database: G6FD1D6C71405C0_METEOR0YKG0AIDW
       schema: "{{ env_var('ORACLE_SCHEMA', 'PHYSICAL_METEOR_RAW') }}"
       threads: 4
 
@@ -87,5 +114,14 @@ physical_meteor:
       user: meteor_admin
       pass: "{{ env_var('POSTGRES_PASS') }}"
       port: 3306  
+
+    dev_mysql_lakehouse:
+      type: mysql
+      server: "{{ env_var('MYSQL_HOST', '10.0.1.58') }}"
+      port: 3306
+      username: admin
+      password: "{{ env_var('ORACLE_PASSWORD') }}"
+      schema: gaokyun_db
+
 
       

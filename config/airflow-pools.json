@@ -11,5 +11,9 @@
   "snowflake_heavy_pool": {
     "description": "Limits heavy dbt models",
     "slots": 5
+  },
+  "adw_dbt_pool": {
+    "description": "Limits concurrent ADW dbt transformations to prevent host CPU/Memory saturation.",
+    "slots": 3
   }
 }

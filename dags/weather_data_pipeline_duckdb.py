@@ -89,6 +89,7 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
             task_id=f"sensor_wait_for_{mod}_{ttyp}",
             mode="reschedule",
             poke_interval=180,
+            soft_fail=True,
             timeout=7200
         )
         def wait_for_data(data_interval_end: pendulum.DateTime) -> bool:
@@ -165,55 +166,79 @@ for task_key, buffer_hours in SCHEDULES.items():
     model, ttype = task_key.split('-')
     globals()[f"extract_{model}_{ttype}_dag"] = create_extraction_dag(task_key, model, ttype, buffer_hours)
 
+from airflow.utils.task_group import TaskGroup
+
 WEATHER_MODELS = {
-    'gfs': {
-        'asset_trigger': [ASSETS['gfs-upper'], ASSETS['gfs-surface']],
-        'selector': 'stg_gfs_upper+ stg_gfs_surface+',
-        'tags': ['gfs'],
-        'desc': 'Global Forecast System'
-    },
-    'aifs': {
-        'asset_trigger': [ASSETS['aifs-upper'], ASSETS['aifs-surface'], ASSETS['aifs-spread']],
-        'selector': 'stg_ecmwf_aifs_upper+ stg_ecmwf_aifs_surface+ stg_ecmwf_aifs_spread+',
-        'tags': ['aifs', 'ai'],
-        'desc': 'ECMWF Artificial Intelligence Forecast'
-    },
-    'ifs': {
-        'asset_trigger': [ASSETS['ifs-upper'], ASSETS['ifs-surface'], ASSETS['ifs-spread']],
-        'selector': 'stg_ecmwf_ifs_upper+ stg_ecmwf_ifs_surface+ stg_ecmwf_ifs_spread+',
-        'tags': ['ifs', 'high_res'],
-        'desc': 'ECMWF Integrated Forecasting System'
-    }
+    'gfs_upper': {'asset_trigger': ASSETS['gfs-upper'], 'selector': 'stg_gfs_upper+', 'match_key': 'gfs_raw/gfs_upper'},
+    'gfs_surface': {'asset_trigger': ASSETS['gfs-surface'], 'selector': 'stg_gfs_surface+', 'match_key': 'gfs_raw/gfs_surface'},
+    'aifs_upper': {'asset_trigger': ASSETS['aifs-upper'], 'selector': 'stg_ecmwf_aifs_upper+', 'match_key': 'ecmwf_raw/at_aifs_upper'},
+    'aifs_surface': {'asset_trigger': ASSETS['aifs-surface'], 'selector': 'stg_ecmwf_aifs_surface+', 'match_key': 'ecmwf_raw/at_aifs_surface'},
+    'aifs_spread': {'asset_trigger': ASSETS['aifs-spread'], 'selector': 'stg_ecmwf_aifs_spread+', 'match_key': 'ecmwf_raw/aifs_spread'},
+    'ifs_upper': {'asset_trigger': ASSETS['ifs-upper'], 'selector': 'stg_ecmwf_ifs_upper+', 'match_key': 'ecmwf_raw/at_ifs_upper'},
+    'ifs_surface': {'asset_trigger': ASSETS['ifs-surface'], 'selector': 'stg_ecmwf_ifs_surface+', 'match_key': 'ecmwf_raw/at_ifs_surface'},
+    'ifs_spread': {'asset_trigger': ASSETS['ifs-spread'], 'selector': 'stg_ecmwf_ifs_spread+', 'match_key': 'ecmwf_raw/ifs_spread'},
 }
 
+@dag(
+    dag_id='weather_ops.transform.all_models_dbt_duckdb',
+    default_args=default_args,
+    schedule=list(ASSETS.values()), # Trigger on ANY of the 8 assets updating
+    start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
+    catchup=False,
+    doc_md="Consolidated DuckDB transformation pipeline with TaskGroup visual layout and Pattern A branching.",
+    tags=['dbt', 'duckdb', 'gold', 'consensus']
+)
+def unified_forecast_transform_duckdb():
 
-def create_weather_dag(model_id, config):
-    @dag(
-        dag_id=f'weather_ops.transform.{model_id}_dbt_duckdb',
-        default_args=default_args,
-        schedule=config['asset_trigger'],
-        start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
-        catchup=False,
-        doc_md=f"### {config['desc']} Transformation\nSurgical dbt run for {model_id} family.",
-        tags=['dbt', 'duckdb', 'gold'] + config['tags']
-    )
-    def transform_dag():
+    # A. Branching task to determine which targets to execute
+    @task.branch(task_id='choose_branch')
+    def determine_branches(**context):
+        events = context.get('triggering_dataset_events') or {}
+        
+        # If no events (manual run or backfill), trigger all tasks
+        if not events:
+            all_tasks = []
+            for model_id in WEATHER_MODELS.keys():
+                family = model_id.split('_')[0]
+                all_tasks.append(f"{family}.dbt_run_{model_id}")
+            return all_tasks
+            
+        branches = []
+        for uri in events.keys():
+            for model_id, config in WEATHER_MODELS.items():
+                if config['match_key'] in uri:
+                    family = model_id.split('_')[0]
+                    branches.append(f"{family}.dbt_run_{model_id}")
+                    
+        # Fallback to all if somehow empty
+        if not branches:
+            for model_id in WEATHER_MODELS.keys():
+                family = model_id.split('_')[0]
+                branches.append(f"{family}.dbt_run_{model_id}")
+                
+        return branches
 
-        @task(task_id=f'dbt_run_{model_id}_atomic', pool=DUCKDB_POOL)
-        def execute_models():
-            from etl.meteorology_duckdb import run_dbt_duckdb
-            run_dbt_duckdb(
-                command="run",
-                select_path=config['selector']
-            )
+    # B. Define groups and dbt execution tasks
+    branch_node = determine_branches()
+    
+    families = ['gfs', 'aifs', 'ifs']
+    for family in families:
+        with TaskGroup(group_id=family) as tg:
+            family_models = {k: v for k, v in WEATHER_MODELS.items() if k.startswith(family)}
+            
+            for model_id, config in family_models.items():
+                @task(task_id=f'dbt_run_{model_id}', pool=DUCKDB_POOL)
+                def execute_models(selector=config['selector']):
+                    from etl.meteorology_duckdb import run_dbt_duckdb
+                    run_dbt_duckdb(
+                        command="run",
+                        select_path=selector
+                    )
+                
+                # Set dependency: branch_node -> task inside TaskGroup
+                branch_node >> execute_models()
 
-        execute_models()
-
-    return transform_dag()
-
-
-for model_id, config in WEATHER_MODELS.items():
-    globals()[f"dag_transform_{model_id}"] = create_weather_dag(model_id, config)
+globals()["dag_unified_transform_duckdb"] = unified_forecast_transform_duckdb()
 
 
 @dag(
@@ -232,10 +257,10 @@ for model_id, config in WEATHER_MODELS.items():
 )
 def refresh_unified_forecasts_v2():
 
-    def dbt_task(task_id, select_statement):
+    def dbt_task(task_id, select_statement, image="dbt-duckdb:latest", target="dev_duckdb", pool=DUCKDB_POOL):
         return DockerOperator(
             task_id=task_id,
-            image="dbt-duckdb:latest",
+            image=image,
             api_version="auto",
             auto_remove="success",
             mount_tmp_dir=False,
@@ -258,17 +283,17 @@ def refresh_unified_forecasts_v2():
                 "POSTGRES_USERNAME": os.getenv("POSTGRES_USERNAME", "airflow"),
                 "POSTGRES_PASS": os.getenv("POSTGRES_PASS", "airflow"),
             },
-            command=f"dbt run --project-dir /usr/app/physical_meteor --profiles-dir /usr/app/physical_meteor --target dev_duckdb --select {select_statement}",
-            pool=DUCKDB_POOL,
+            command=f"dbt run --project-dir /usr/app/physical_meteor --profiles-dir /usr/app/physical_meteor --target {target} --select {select_statement}",
+            pool=pool,
         )
 
     stg_refresh = dbt_task('refresh_silver_layer', 'tag:silver')
     aifs_gold = dbt_task('gold_aifs', 'fct_aifs_upper fct_aifs_surface fct_aifs_spread')
     ifs_gold = dbt_task('gold_ifs', 'fct_ifs_upper fct_ifs_surface fct_ifs_spread')
     gfs_gold = dbt_task('gold_gfs', 'fct_gfs_upper fct_gfs_surface')
-    unified_gold = dbt_task('gold_unified', 'fct_upper_forecast fct_surface_forecast fct_spread_forecast')
+    unified_gold = dbt_task('gold_unified', 'fct_upper_forecast fct_surface_forecast fct_spread_forecast', image="dbt-postgres:latest", target="dev_postgres", pool='default_pool')
 
-    stg_refresh >> gfs_gold >> aifs_gold >> ifs_gold >> unified_gold
+    stg_refresh >> [gfs_gold, aifs_gold, ifs_gold] >> unified_gold
 
 
 refresh_unified_forecasts_v2()

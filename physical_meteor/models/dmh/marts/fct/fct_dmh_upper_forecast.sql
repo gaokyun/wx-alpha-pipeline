@@ -1,4 +1,7 @@
-{{ config(schema='gold', materialized='view') }}
+{{ config(
+    materialized='table',
+    alias='fct_upper_forecast'
+) }}
 
 SELECT
     surrogate_merge_key,
@@ -17,7 +20,7 @@ SELECT
     u_wind_m_s,
     v_wind_m_s,
     dbt_updated_at
-FROM {{ ref('fct_gfs_upper') }}
+FROM {{ ref('fct_dmh_gfs_upper') }}
 UNION ALL
 SELECT
     surrogate_merge_key,
@@ -36,7 +39,7 @@ SELECT
     u_wind_m_s,
     v_wind_m_s,
     dbt_updated_at
-FROM {{ ref('fct_aifs_upper') }}
+FROM {{ ref('fct_dmh_aifs_upper') }}
 UNION ALL
 SELECT
     surrogate_merge_key,
@@ -55,4 +58,4 @@ SELECT
     u_wind_m_s,
     v_wind_m_s,
     dbt_updated_at
-FROM {{ ref('fct_ifs_upper') }}
+FROM {{ ref('fct_dmh_ifs_upper') }}

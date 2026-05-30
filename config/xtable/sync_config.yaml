@@ -1,0 +1,35 @@
+# /opt/xtable/config/sync_config.yaml
+sourceFormat: DELTA
+targetFormats:
+  - ICEBERG
+datasets:
+  # AWS S3 Delta Table
+  - tableBasePath: s3://amzn-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/
+    tableName: at_aifs_upper
+    namespace: meteor_db
+
+  # OCI S3 Delta Tables (Sourced from Environment Variable, under meteor_db namespace)
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/gfs_raw/gfs_upper/
+    tableName: gfs_upper
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/gfs_raw/gfs_surface/
+    tableName: gfs_surface
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/
+    tableName: at_aifs_upper_oci
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_surface/
+    tableName: at_aifs_surface
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/aifs_spread/
+    tableName: aifs_spread
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_upper/
+    tableName: at_ifs_upper
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_surface/
+    tableName: at_ifs_surface
+    namespace: meteor_db
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/ifs_spread/
+    tableName: ifs_spread
+    namespace: meteor_db

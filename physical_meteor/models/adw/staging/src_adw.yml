@@ -1,0 +1,25 @@
+version: 2
+
+sources:
+  - name: adw_raw
+    description: "Raw Weather Data external tables stored in Oracle ADW"
+    schema: PHYSICAL_METEOR_RAW
+    tables:
+      - name: ext_aws_at_aifs_upper
+        description: "AWS AIFS Upper data (Iceberg)"
+      - name: ext_at_aifs_upper
+        description: "OCI AIFS Upper data (Parquet)"
+      - name: ext_at_aifs_surface
+        description: "OCI AIFS Surface data (Parquet)"
+      - name: ext_aifs_spread
+        description: "OCI AIFS Spread data (Parquet)"
+      - name: ext_at_ifs_upper
+        description: "OCI IFS Upper data (Parquet)"
+      - name: ext_at_ifs_surface
+        description: "OCI IFS Surface data (Parquet)"
+      - name: ext_ifs_spread
+        description: "OCI IFS Spread data (Parquet)"
+      - name: ext_gfs_upper
+        description: "OCI GFS Upper data (Parquet)"
+      - name: ext_gfs_surface
+        description: "OCI GFS Surface data (Parquet)"

@@ -1,0 +1,30 @@
+# /opt/xtable/config/sync_config_oci.yaml
+sourceFormat: DELTA
+targetFormats:
+  - ICEBERG
+datasets:
+  # OCI S3 Delta Tables (Sourced from Environment Variable, under matching parent directories for HadoopCatalog compatibility)
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/gfs_raw/gfs_upper/
+    tableName: gfs_upper
+    namespace: weather_data/delta_lake/gfs_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/gfs_raw/gfs_surface/
+    tableName: gfs_surface
+    namespace: weather_data/delta_lake/gfs_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/
+    tableName: at_aifs_upper
+    namespace: weather_data/delta_lake/ecmwf_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_aifs_surface/
+    tableName: at_aifs_surface
+    namespace: weather_data/delta_lake/ecmwf_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/aifs_spread/
+    tableName: aifs_spread
+    namespace: weather_data/delta_lake/ecmwf_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_upper/
+    tableName: at_ifs_upper
+    namespace: weather_data/delta_lake/ecmwf_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/at_ifs_surface/
+    tableName: at_ifs_surface
+    namespace: weather_data/delta_lake/ecmwf_raw
+  - tableBasePath: s3://${OCI_OBJECT_STORAGE_BUCKET}/weather_data/delta_lake/ecmwf_raw/ifs_spread/
+    tableName: ifs_spread
+    namespace: weather_data/delta_lake/ecmwf_raw

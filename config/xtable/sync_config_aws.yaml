@@ -1,0 +1,9 @@
+# /opt/xtable/config/sync_config_aws.yaml
+sourceFormat: DELTA
+targetFormats:
+  - ICEBERG
+datasets:
+  # AWS S3 Delta Table
+  - tableBasePath: s3://amzn-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/
+    tableName: at_aifs_upper
+    namespace: weather_data/delta_lake/ecmwf_raw

@@ -3,6 +3,7 @@ import pendulum
 from airflow.sdk import dag, task, Asset
 from airflow.providers.standard.operators.bash import BashOperator
 from airflow.sensors.python import PythonSensor
+from airflow.utils.task_group import TaskGroup
 from utils.check_data_readiness import check_prior_day_data_readiness
 
 OCI_BUCKET = os.getenv('OCI_OBJECT_STORAGE_BUCKET', 'oci-s3-ykg-storage')
@@ -77,18 +78,22 @@ for model_id, config in WEATHER_MODELS_ADW.items():
     globals()[f"dag_transform_adw_{model_id}"] = create_weather_dag_adw(model_id, config)
 
 
+ADW_POOL = 'adw_dbt_pool'
+
+
 @dag(
     dag_id='weather_ops.transform.unified_forecast_refresh_adw',
     default_args=default_args,
     schedule="0 4 * * *",
     start_date=pendulum.datetime(2026, 3, 20, tz="America/New_York"),
     catchup=False,
+    max_active_tasks=3,
     doc_md="Refreshes the final consensus ADW views for both Upper Air and Surface metrics.",
     tags=['dbt', 'adw', 'oracle', 'consensus', 'gold']
 )
 def refresh_unified_forecasts_adw():
 
-    def dbt_task(task_id, select_statement):
+    def dbt_task(task_id, select_statement, pool=ADW_POOL):
         return BashOperator(
             task_id=task_id,
             bash_command=f"""
@@ -98,7 +103,8 @@ def refresh_unified_forecasts_adw():
                         --profiles-dir {DBT_PROJECT_PATH} \
                         --target adw_prod \
                         --select {select_statement}
-            """
+            """,
+            pool=pool
         )
 
     wait_for_data = PythonSensor(
@@ -109,9 +115,30 @@ def refresh_unified_forecasts_adw():
         mode='reschedule',        # Frees up worker slots while waiting
     )
 
-    refresh_marts = dbt_task('refresh_adw_marts', 'dim_adw_locations dim_adw_times fct_adw_gfs_upper fct_adw_gfs_surface fct_adw_aifs_upper fct_adw_aifs_surface fct_adw_aifs_spread fct_adw_ifs_upper fct_adw_ifs_surface fct_adw_ifs_spread')
-    unified_gold = dbt_task('gold_unified_adw', 'fct_adw_upper_forecast fct_adw_surface_forecast fct_adw_spread_forecast')
+    refresh_dimensions = dbt_task('refresh_adw_dimensions', 'dim_adw_locations dim_adw_times')
+    unified_gold = dbt_task('refresh_gold_unified_adw', 'fct_adw_upper_forecast fct_adw_surface_forecast fct_adw_spread_forecast')
 
-    wait_for_data >> refresh_marts >> unified_gold
+    # Define groups
+    tg_list = []
+    
+    with TaskGroup(group_id='gfs') as tg_gfs:
+        dbt_task('dbt_run_gfs_upper', 'fct_adw_gfs_upper')
+        dbt_task('dbt_run_gfs_surface', 'fct_adw_gfs_surface')
+        tg_list.append(tg_gfs)
+
+    with TaskGroup(group_id='ifs') as tg_ifs:
+        dbt_task('dbt_run_ifs_upper', 'fct_adw_ifs_upper')
+        dbt_task('dbt_run_ifs_surface', 'fct_adw_ifs_surface')
+        dbt_task('dbt_run_ifs_spread', 'fct_adw_ifs_spread')
+        tg_list.append(tg_ifs)
+
+    with TaskGroup(group_id='aifs') as tg_aifs:
+        dbt_task('dbt_run_aifs_upper', 'fct_adw_aifs_upper')
+        dbt_task('dbt_run_aifs_surface', 'fct_adw_aifs_surface')
+        dbt_task('dbt_run_aifs_spread', 'fct_adw_aifs_spread')
+        tg_list.append(tg_aifs)
+
+    wait_for_data >> refresh_dimensions >> tg_list >> unified_gold
+
 
 globals()["dag_unified_refresh_adw"] = refresh_unified_forecasts_adw()

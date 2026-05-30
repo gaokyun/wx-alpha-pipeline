@@ -172,6 +172,22 @@ services:
       - postgres
     restart: "no"
 
+  dbt-duckdb:
+    build:
+      context: .
+      dockerfile: Dockerfile.dbt-duckdb
+    image: dbt-duckdb:latest
+    working_dir: /usr/app
+    env_file:
+      - .env
+    environment:
+      - DBT_LOG_PATH=/tmp/dbt/logs
+      - DBT_TARGET_PATH=/tmp/dbt/target
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}:/usr/app:rw
+    entrypoint: ["bash","-c","sleep infinity"]
+    restart: "no"
+
   dbt-snowflake:
     build:
       context: .
@@ -215,6 +231,9 @@ services:
       - OCI_SECRET_KEY=${OCI_OBJECT_STORAGE_SECRET_KEY}
       - AWS_ACCESS_KEY_ID=${AWS_ACC_KEY}
       - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_KEY}
+      - ORACLE_MH_PASSWORD=${ORACLE_MH_PASSWORD}
+      - MYSQL_HOST=${MYSQL_HOST}
+      - MYSQL_USER=${MYSQL_USER}
     ports:
       - "9330:8000"
     networks:
@@ -569,3 +588,4 @@ services:
 volumes:
   postgres-db-volume:
   jupyterhub_data:
+  

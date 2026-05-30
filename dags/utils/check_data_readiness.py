@@ -41,8 +41,8 @@ def check_prior_day_data_readiness(**context):
     missing = []
     print(f"Verifying OCI data readiness for date: {yesterday}")
     for path in paths:
-        # Spread data only exists for 00z and 12z cycles (cycles 0 and 12)
-        target_cycles = [0, 12] if "spread" in path else [0, 6, 12, 18]
+        # Spread data and IFS models only exist for 00z and 12z cycles (cycles 0 and 12)
+        target_cycles = [0, 12] if ("spread" in path or ("ifs" in path and "aifs" not in path)) else [0, 6, 12, 18]
         for cycle in target_cycles:
             prefix = f"weather_data/delta_lake/{path}/forecast_date={yesterday}/forecast_cycle={cycle}/"
             try:
