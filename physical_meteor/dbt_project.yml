@@ -22,6 +22,7 @@ on-run-start:
       INSTALL httpfs; LOAD httpfs;
       INSTALL aws; LOAD aws;
       INSTALL delta; LOAD delta;
+      INSTALL mysql; LOAD mysql;
 
     {% elif target.type == 'postgres' %}
       -- Postgres specific setup (No DuckDB commands allowed here!)
@@ -49,8 +50,13 @@ models:
   physical_meteor:
     
     # --- LOCAL DUCKDB-POSTGRES HYBRID (DPH) ---
+    # duckdb-postgres hybrid (DPH) with bronze storage in OCI s3 compatible storage,
+    # silver staging area in DuckDB and 
+    # gold marts in PostgreSQL
+
     dph:
-      # --- SILVER LAYER ---
+      +enabled: "{{ target.type in ('duckdb', 'postgres') and target.name != 'dev_duckdb_mysql' }}"
+      # --- SILVER LAYER --- 
       staging:
         +materialized: view
         +schema: silver      # Results in: main_silver (DuckDB default)
@@ -72,9 +78,39 @@ models:
           
           # 2. The "Dining Room" (The only thing users see)
           fct_unified_forecast:
+            +enabled: "{{ target.type == 'postgres' }}"
             +schema: gold      # Results in: main_gold (custom gold schema in postgres)
-            +materialized: table
+            +materialized: view
             +tags: ["unified", "gold", "marts"]
+
+    # --- ORACLE ADW MEDALLION LAYERS ---
+    adw:
+      +enabled: "{{ target.type == 'oracle' }}"
+      staging:
+        +schema: PHYSICAL_METEOR_STG
+        +materialized: view
+      marts:
+        +schema: PHYSICAL_METEOR_GOLD
+        dim:
+          +materialized: incremental
+        fct:
+          +materialized: incremental
+
+    # --- DUCKDB + MYSQL HYBRID (DMH) ---
+    dmh:
+      +enabled: "{{ target.name == 'dev_duckdb_mysql' or target.type == 'mysql' }}"
+      staging:
+        +schema: silver
+        +materialized: view
+      marts:
+        +database: PHYSICAL_METEOR_GOLD
+        +schema: PHYSICAL_METEOR_GOLD
+        dim:
+          +materialized: incremental
+          +incremental_strategy: append
+        fct:
+          +materialized: incremental
+          +incremental_strategy: append
 
 
   
