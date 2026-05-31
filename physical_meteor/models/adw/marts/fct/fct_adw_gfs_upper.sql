@@ -22,7 +22,7 @@ SELECT
     CURRENT_TIMESTAMP AS dbt_updated_at
 FROM {{ ref('stg_adw_gfs_upper') }}
 {% if is_incremental() %}
-    WHERE cycle_date >= TRUNC(SYSDATE) - 1
+    WHERE forecast_reference_time >= TRUNC(SYSDATE) - 1
 {% else %}
-    WHERE cycle_date >= TRUNC(SYSDATE) - 3
+    WHERE forecast_reference_time >= TRUNC(SYSDATE) - 3
 {% endif %}

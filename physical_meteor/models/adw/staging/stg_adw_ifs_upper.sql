@@ -6,10 +6,12 @@ WITH raw_source AS (
     SELECT * FROM {{ source('adw_raw', 'ext_at_ifs_upper') }}
     WHERE latitude BETWEEN -90 AND 90
       AND longitude BETWEEN -180 AND 360
+      AND forecast_reference_time >= TRUNC(SYSDATE) - 3
 ),
 
 renamed_and_casted AS (
     SELECT
+        forecast_reference_time,
         TRUNC(CAST(forecast_reference_time AS DATE)) AS cycle_date,
         CAST(EXTRACT(HOUR FROM forecast_reference_time) AS NUMBER) AS cycle_hour,
         CAST(step_hours AS NUMBER) AS forecast_step_hours,
