@@ -93,8 +93,10 @@ models:
         +schema: PHYSICAL_METEOR_GOLD
         dim:
           +materialized: incremental
+          +incremental_strategy: delete+insert
         fct:
           +materialized: incremental
+          +incremental_strategy: delete+insert
 
     # --- DUCKDB + MYSQL HYBRID (DMH) ---
     dmh:
