@@ -1,8 +1,9 @@
 import os
 import pendulum
 # --- AIRFLOW 2.x COMPATIBLE IMPORTS ---
-from airflow.decorators import dag, task
 from deltalake import DeltaTable
+from airflow.sdk import dag
+from airflow.sdk import task
 
 # --- OCI CONFIGURATION (Pivoted from AWS) ---
 OCI_BUCKET = os.getenv('OCI_OBJECT_STORAGE_BUCKET', 'oci-s3-ykg-storage')

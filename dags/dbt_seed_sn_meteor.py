@@ -1,8 +1,9 @@
 import pendulum
 
-from airflow.decorators import dag, task
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 import docker
+from airflow.sdk import task
+from airflow.sdk import dag
 
 @task(task_id='dbt_seed_meteor_anchors')
 def execute_dbt_seed_in_container():

@@ -55,7 +55,7 @@ models:
     # gold marts in PostgreSQL
 
     dph:
-      +enabled: "{{ target.type in ('duckdb', 'postgres') and target.name != 'dev_duckdb_mysql' }}"
+      +enabled: true
       # --- SILVER LAYER --- 
       staging:
         +materialized: view
@@ -83,30 +83,59 @@ models:
             +materialized: view
             +tags: ["unified", "gold", "marts"]
 
+    # --- POSTGRES-DUCKDB HYBRID (PDH) ---
+    # postgres-duckdb hybrid (PDH) using postgres target and FDW foreign tables
+    pdh:
+      +enabled: true
+      # --- SILVER LAYER ---
+      staging:
+        +materialized: view
+        +schema: pdh_staging
+        gfs:
+          +tags: ["gfs", "pdh", "staging"]
+        ecmwf:
+          +tags: ["ecmwf", "pdh", "staging"]
+
+      # --- GOLD LAYER ---
+      marts:
+        +schema: pdh_marts
+        weather:
+          # 1. Atomic Tables
+          atomic:
+            +materialized: table
+            +tags: ["marts", "pdh", "atomic"]
+          
+          # 2. Unified Views
+          fct_unified_forecast:
+            +enabled: "{{ target.type == 'postgres' }}"
+            +materialized: view
+            +tags: ["unified", "pdh", "marts"]
+
     # --- ORACLE ADW MEDALLION LAYERS ---
     adw:
-      +enabled: "{{ target.type == 'oracle' }}"
+      +enabled: true
       staging:
-        +schema: PHYSICAL_METEOR_STG
+        +schema: "{{ 'PHYSICAL_METEOR_STG' if target.type == 'oracle' else 'adw_silver' }}"
         +materialized: view
       marts:
-        +schema: PHYSICAL_METEOR_GOLD
+        +schema: "{{ 'PHYSICAL_METEOR_GOLD' if target.type == 'oracle' else 'adw_gold' }}"
         dim:
           +materialized: incremental
           +incremental_strategy: delete+insert
         fct:
           +materialized: incremental
           +incremental_strategy: delete+insert
+          +incremental_predicates: ["DBT_INTERNAL_DEST.CYCLE_DATE >= TRUNC(SYSDATE) - 1"]
 
     # --- DUCKDB + MYSQL HYBRID (DMH) ---
     dmh:
-      +enabled: "{{ target.name == 'dev_duckdb_mysql' or target.type == 'mysql' }}"
+      +enabled: true
       staging:
-        +schema: silver
+        +schema: "{{ 'silver' if target.type == 'mysql' or target.name == 'dev_duckdb_mysql' else 'dmh_silver' }}"
         +materialized: view
       marts:
         +database: PHYSICAL_METEOR_GOLD
-        +schema: PHYSICAL_METEOR_GOLD
+        +schema: "{{ 'PHYSICAL_METEOR_GOLD' if target.type == 'mysql' or target.name == 'dev_duckdb_mysql' else 'dmh_gold' }}"
         dim:
           +materialized: incremental
           +incremental_strategy: append

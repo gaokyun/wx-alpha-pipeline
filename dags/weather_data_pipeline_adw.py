@@ -2,8 +2,8 @@ import os
 import pendulum
 from airflow.sdk import dag, task, Asset
 from airflow.providers.standard.operators.bash import BashOperator
-from airflow.sensors.python import PythonSensor
-from airflow.utils.task_group import TaskGroup
+from airflow.providers.standard.sensors.python import PythonSensor
+from airflow.sdk import TaskGroup
 from utils.check_data_readiness import check_prior_day_data_readiness
 
 OCI_BUCKET = os.getenv('OCI_OBJECT_STORAGE_BUCKET', 'oci-s3-ykg-storage')
@@ -87,6 +87,7 @@ ADW_POOL = 'adw_dbt_pool'
     schedule=None,  # Triggered by centralized master DAG
     catchup=False,
     max_active_tasks=1,
+    max_active_runs=1,
     doc_md="Refreshes the final consensus ADW views for both Upper Air and Surface metrics.",
     tags=['dbt', 'adw', 'oracle', 'consensus', 'gold']
 )
@@ -127,20 +128,20 @@ def refresh_unified_forecasts_adw():
     tg_list = []
     
     with TaskGroup(group_id='gfs') as tg_gfs:
-        dbt_task('dbt_run_gfs_upper', 'fct_adw_gfs_upper', pool='adw_dbt_pool_upper')
-        dbt_task('dbt_run_gfs_surface', 'fct_adw_gfs_surface')
+        dbt_task('dbt_run_gfs_upper', 'stg_adw_gfs_upper fct_adw_gfs_upper', pool='adw_dbt_pool_upper')
+        dbt_task('dbt_run_gfs_surface', 'stg_adw_gfs_surface fct_adw_gfs_surface')
         tg_list.append(tg_gfs)
 
     with TaskGroup(group_id='ifs') as tg_ifs:
-        dbt_task('dbt_run_ifs_upper', 'fct_adw_ifs_upper', pool='adw_dbt_pool_upper')
-        dbt_task('dbt_run_ifs_surface', 'fct_adw_ifs_surface')
-        dbt_task('dbt_run_ifs_spread', 'fct_adw_ifs_spread')
+        dbt_task('dbt_run_ifs_upper', 'stg_adw_ifs_upper fct_adw_ifs_upper', pool='adw_dbt_pool_upper')
+        dbt_task('dbt_run_ifs_surface', 'stg_adw_ifs_surface fct_adw_ifs_surface')
+        dbt_task('dbt_run_ifs_spread', 'stg_adw_ifs_spread fct_adw_ifs_spread')
         tg_list.append(tg_ifs)
 
     with TaskGroup(group_id='aifs') as tg_aifs:
-        dbt_task('dbt_run_aifs_upper', 'fct_adw_aifs_upper', pool='adw_dbt_pool_upper')
-        dbt_task('dbt_run_aifs_surface', 'fct_adw_aifs_surface')
-        dbt_task('dbt_run_aifs_spread', 'fct_adw_aifs_spread')
+        dbt_task('dbt_run_aifs_upper', 'stg_adw_aifs_upper fct_adw_aifs_upper', pool='adw_dbt_pool_upper')
+        dbt_task('dbt_run_aifs_surface', 'stg_adw_aifs_surface fct_adw_aifs_surface')
+        dbt_task('dbt_run_aifs_spread', 'stg_adw_aifs_spread fct_adw_aifs_spread')
         tg_list.append(tg_aifs)
 
     wait_for_data >> update_external_tables >> refresh_dimensions >> tg_list

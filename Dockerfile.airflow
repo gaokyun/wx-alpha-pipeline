@@ -231,6 +231,7 @@ RUN pip install --no-cache-dir \
     jupyterlab-git langchain-openai openai
 
 # Hub expects 'jupyterhub-singleuser'
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 CMD ["jupyterhub-singleuser", "--ip=0.0.0.0", "--port=8888", "--ServerApp.root_dir=/home/airflow/work"]
 
 # --- TARGET 2: airflow-worker ---

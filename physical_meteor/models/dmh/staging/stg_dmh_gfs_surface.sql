@@ -7,7 +7,7 @@ WITH raw_surface AS (
     SELECT * FROM {{ source('gfs_raw', 'gfs_surface') }}
     WHERE latitude BETWEEN -90 AND 90
       AND longitude BETWEEN -180 AND 360
-      {% if target.name in ['dev_duckdb_mysql', 'dev_duckdb'] %}
+      {% if target.name in ['dev_duckdb_mysql', 'dev_duckdb_postgres'] %}
       -- Developer optimization: filter coordinates to a US-bounding box to speed up runs
       AND latitude BETWEEN 30 AND 50
       AND (longitude BETWEEN -125 AND -70 OR longitude BETWEEN 235 AND 290)

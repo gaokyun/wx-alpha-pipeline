@@ -125,7 +125,10 @@ networks:
 
 services:
   postgres:
-    image: postgres:16
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    image: custom-weather-postgres:16
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: ${POSTGRES_PASS}
@@ -133,6 +136,7 @@ services:
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
       - ./postgres_init_db.sql:/docker-entrypoint-initdb.d/init-db.sql
+      - ./data:/tmp/shared_data:rw
     ports:
       - "5432:5432"
     healthcheck:
@@ -234,6 +238,10 @@ services:
       - ORACLE_MH_PASSWORD=${ORACLE_MH_PASSWORD}
       - MYSQL_HOST=${MYSQL_HOST}
       - MYSQL_USER=${MYSQL_USER}
+      - ORACLE_HOST=${ORACLE_HOST}
+      - ORACLE_SERVICE=${ORACLE_SERVICE}
+      - ORACLE_USER=${ORACLE_USER}
+      - ORACLE_PASSWORD=${ORACLE_PASSWORD}
     ports:
       - "9330:8000"
     networks:
@@ -246,6 +254,7 @@ services:
       target: jupyter-developer-env
     image: custom-weather-jupyter:latest
     container_name: jupyter-developer-env
+    command: jupyter lab --ip=0.0.0.0 --port=9331 --no-browser --ServerApp.root_dir=/home/airflow/work
     shm_size: '2gb'
     ulimits:
       nofile:
@@ -286,6 +295,9 @@ services:
       OPENAI_API_VERSION: ${OPENAI_API_VERSION}
       AZURE_OPENAI_DEPLOYMENT_NAME: ${AZURE_OPENAI_DEPLOYMENT_NAME}
       JUPYTER_AI_CONFIG_PATH: /home/airflow/.jupyter/jupyter_ai_config.json
+      ADW_CONNECT_DESCRIPTOR: "(description=(address=(protocol=tcps)(port=1522)(host=${ORACLE_HOST}))(connect_data=(service_name=${ORACLE_SERVICE}))(security=(ssl_server_dn_match=no)))"
+      ADW_USERNAME: "${ORACLE_USER:-PHYSICAL_METEOR_RAW}"
+      ADW_PASSWORD: "${ORACLE_PASSWORD}"
     restart: always
 
   # ----------------=========================================================

@@ -1,25 +1,374 @@
 version: 2
-
 sources:
-  - name: adw_raw
-    description: "Raw Weather Data external tables stored in Oracle ADW"
-    schema: PHYSICAL_METEOR_RAW
-    tables:
-      - name: ext_aws_at_aifs_upper
-        description: "AWS AIFS Upper data (Iceberg)"
-      - name: ext_at_aifs_upper
-        description: "OCI AIFS Upper data (Parquet)"
-      - name: ext_at_aifs_surface
-        description: "OCI AIFS Surface data (Parquet)"
-      - name: ext_aifs_spread
-        description: "OCI AIFS Spread data (Parquet)"
-      - name: ext_at_ifs_upper
-        description: "OCI IFS Upper data (Parquet)"
-      - name: ext_at_ifs_surface
-        description: "OCI IFS Surface data (Parquet)"
-      - name: ext_ifs_spread
-        description: "OCI IFS Spread data (Parquet)"
-      - name: ext_gfs_upper
-        description: "OCI GFS Upper data (Parquet)"
-      - name: ext_gfs_surface
-        description: "OCI GFS Surface data (Parquet)"
+- name: adw_raw
+  description: Raw weather data external tables stored in Oracle ADW.
+  schema: PHYSICAL_METEOR_RAW
+  tables:
+  - name: ext_aws_at_aifs_upper
+    description: 'External table for AIFS Upper air data loaded via AWS S3. [Connection
+      Type: iceberg] [Connection URL: s3://oci-s3-ykg-storage/weather_data/iceberg/at_aifs_upper/]'
+    columns:
+    - &id001
+      name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id002
+      name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id003
+      name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id004
+      name: forecast_cycle
+      description: Hour of the model run cycle (UTC).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 12
+    - &id005
+      name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - &id006
+      name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id007
+      name: isobaricinhpa
+      description: Isobaric pressure level height in hPa.
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - &id008
+      name: gh
+      description: Raw geopotential height of the pressure level in meters.
+      tags:
+      - meteorological
+      - height
+      tests:
+      - not_null
+    - &id009
+      name: t
+      description: Raw temperature in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+    - &id010
+      name: u
+      description: Raw zonal (U) eastward wind component speed in meters per second.
+      tags:
+      - meteorological
+      - wind
+      tests:
+      - not_null
+    - &id011
+      name: v
+      description: Raw meridional (V) northward wind component speed in meters per
+        second.
+      tags:
+      - meteorological
+      - wind
+      tests:
+      - not_null
+  - name: ext_at_aifs_upper
+    description: 'External table for AIFS Upper air data loaded via OCI. [Connection
+      Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/at_aifs_upper/]'
+    columns:
+    - *id001
+    - *id002
+    - *id003
+    - *id004
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+    - *id009
+    - *id010
+    - *id011
+  - name: ext_at_aifs_surface
+    description: 'External table for AIFS Surface parameters loaded via OCI. [Connection
+      Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/at_aifs_surface/]'
+    columns:
+    - &id012
+      name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id013
+      name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id014
+      name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id015
+      name: forecast_cycle
+      description: Hour of the model run cycle (UTC).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 12
+    - &id016
+      name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - &id017
+      name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id018
+      name: t2m
+      description: Air temperature at 2 meters above ground level in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+    - &id019
+      name: d2m
+      description: Dewpoint temperature at 2 meters above ground level in Kelvin.
+      tags:
+      - meteorological
+      - dewpoint
+      tests:
+      - not_null
+    - &id020
+      name: msl
+      description: Mean sea level pressure in Pascals (Pa).
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - &id021
+      name: tp
+      description: Total accumulated precipitation in meters (m).
+      tags:
+      - meteorological
+      - precipitation
+      tests:
+      - not_null
+    - &id022
+      name: heightAboveGround
+      description: Vertical offset height indicating distance from physical surface.
+      tags:
+      - metadata
+      - spatial
+    - &id023
+      name: surface
+      description: Indicator indicating if the grid cell is categorized as surface.
+      tags:
+      - metadata
+      - spatial
+  - name: ext_aifs_spread
+    description: 'External table for AIFS Ensemble Spread data loaded via OCI. [Connection
+      Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/aifs_spread/]'
+    columns:
+    - &id024
+      name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id025
+      name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id026
+      name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id027
+      name: forecast_cycle
+      description: Hour of the model run cycle (UTC).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 12
+    - &id028
+      name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - &id029
+      name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id030
+      name: isobaricinhpa
+      description: Isobaric pressure level height in hPa.
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - &id031
+      name: gh
+      description: Ensemble spread (standard deviation) for geopotential height in
+        meters.
+      tags:
+      - meteorological
+      - height
+      tests:
+      - not_null
+    - &id032
+      name: t
+      description: Ensemble spread (standard deviation) for temperature in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+  - name: ext_at_ifs_upper
+    description: 'External table for traditional IFS Upper air data loaded via OCI.
+      [Connection Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/at_ifs_upper/]'
+    columns:
+    - *id001
+    - *id002
+    - *id003
+    - *id004
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+    - *id009
+    - *id010
+    - *id011
+  - name: ext_at_ifs_surface
+    description: 'External table for traditional IFS Surface parameters loaded via
+      OCI. [Connection Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/at_ifs_surface/]'
+    columns:
+    - *id012
+    - *id013
+    - *id014
+    - *id015
+    - *id016
+    - *id017
+    - *id018
+    - *id019
+    - *id020
+    - *id021
+    - *id022
+    - *id023
+  - name: ext_ifs_spread
+    description: 'External table for traditional IFS Ensemble Spread data loaded via
+      OCI. [Connection Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/ifs_spread/]'
+    columns:
+    - *id024
+    - *id025
+    - *id026
+    - *id027
+    - *id028
+    - *id029
+    - *id030
+    - *id031
+    - *id032
+  - name: ext_gfs_upper
+    description: 'External table for GFS Upper air data loaded via OCI. [Connection
+      Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/gfs_upper/]'
+    columns:
+    - *id001
+    - *id002
+    - *id003
+    - *id004
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+    - *id009
+    - *id010
+    - *id011
+  - name: ext_gfs_surface
+    description: 'External table for GFS Surface parameters loaded via OCI. [Connection
+      Type: parquet] [Connection URL: s3://oci-s3-ykg-storage/weather_data/parquet/gfs_surface/]'
+    columns:
+    - *id012
+    - *id013
+    - *id014
+    - *id015
+    - *id016
+    - *id017
+    - *id018
+    - *id019
+    - *id020
+    - *id021
+    - *id022
+    - *id023

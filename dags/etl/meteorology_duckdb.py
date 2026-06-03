@@ -399,6 +399,8 @@ def build_duckdb_silver_layer(dataset_name: str, delta_oci_path: str):
 
 def download_gfs_robust(date_obj, cycle, steps, task_type='upper'):
     """GFS Downloader (GRIB2 -> Xarray -> PyArrow -> Delta Lake on OCI Object Storage)"""
+    start_time = time.time()
+    master_table = None
     
     if not isinstance(steps, (list, tuple)):
         steps = [steps]
@@ -617,6 +619,27 @@ def download_gfs_robust(date_obj, cycle, steps, task_type='upper'):
         except Exception as e:
             logger.error(f"❌ Batch Upsert Failed: {e}"); all_success = False
             
+    execution_time = time.time() - start_time
+    from utils.governance import validate_and_log_arrow_table
+    if arrow_tables and master_pk_cols and master_table is not None:
+        validate_and_log_arrow_table(
+            pa_table=master_table,
+            model_name="gfs",
+            layer_type=task_type,
+            execution_time_seconds=execution_time,
+            status="SUCCESS" if all_success else "FAILED",
+            pk_cols=master_pk_cols
+        )
+    else:
+        validate_and_log_arrow_table(
+            pa_table=None,
+            model_name="gfs",
+            layer_type=task_type,
+            execution_time_seconds=execution_time,
+            status="FAILED",
+            validation_error="No Arrow tables extracted or upsert failed."
+        )
+
     return all_success
 
 def ecmwf_file_exists(url):
@@ -648,6 +671,8 @@ def ecmwf_file_exists(url):
 
 def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_type='upper'):
     """Hybrid ECMWF Downloader: Client for IFS, Direct URL for AIFS-ENS Spread"""
+    start_time = time.time()
+    master_table = None
     
     client = Client("ecmwf", beta=False)
     date_str = pendulum.instance(date_obj).format("YYYYMMDD")
@@ -813,6 +838,27 @@ def download_ecmwf_unified(date_obj, cycle, steps, target_model='aifs', task_typ
             build_duckdb_silver_layer(task_name, delta_table_oci_path)
         except Exception: all_success = False
             
+    execution_time = time.time() - start_time
+    from utils.governance import validate_and_log_arrow_table
+    if arrow_tables and master_pk_cols and master_table is not None:
+        validate_and_log_arrow_table(
+            pa_table=master_table,
+            model_name=target_model,
+            layer_type=task_type,
+            execution_time_seconds=execution_time,
+            status="SUCCESS" if all_success else "FAILED",
+            pk_cols=master_pk_cols
+        )
+    else:
+        validate_and_log_arrow_table(
+            pa_table=None,
+            model_name=target_model,
+            layer_type=task_type,
+            execution_time_seconds=execution_time,
+            status="FAILED",
+            validation_error="No Arrow tables extracted or upsert failed."
+        )
+
     return all_success
 
 # ==============================================================================
@@ -877,6 +923,7 @@ def run_dbt_duckdb(command: str, select_path: str = None):
     Standardized runner using dbt's native Python API.
     Bypasses subprocess and docker exec completely.
     """    
+    start_time = time.time()
     try:
         # 1. Inject OCI credentials securely into the current Python environment.
         # Your profiles.yml will automatically pick these up via {{ env_var(...) }}
@@ -891,7 +938,7 @@ def run_dbt_duckdb(command: str, select_path: str = None):
             command,
             "--project-dir", "/opt/airflow/physical_meteor", # Absolute path to dbt_project.yml
             "--profiles-dir", "/opt/airflow/physical_meteor", # Absolute path to profiles.yml
-            "--target", "dev_duckdb"
+            "--target", "dev_duckdb_postgres"
         ]
         
         if select_path:
@@ -904,16 +951,66 @@ def run_dbt_duckdb(command: str, select_path: str = None):
         result: dbtRunnerResult = dbt.invoke(dbt_cli_args)
         
         # 4. Check the results programmatically
+        execution_time = time.time() - start_time
+        dbt_details = {
+            "dbt_command": command,
+            "dbt_select": select_path,
+            "dbt_target": "dev_duckdb_postgres"
+        }
+        if result.success and result.result:
+            models_list = []
+            for run_res in result.result:
+                if hasattr(run_res, 'node') and run_res.node:
+                    models_list.append({
+                        "name": run_res.node.name,
+                        "status": str(run_res.status),
+                        "execution_time": getattr(run_res, 'execution_time', 0.0)
+                    })
+            dbt_details["dbt_models"] = models_list
+            dbt_details["models_run_count"] = len(models_list)
+
+        from utils.governance import validate_and_log_arrow_table
+        
         if result.success:
             logger.info("✅ dbt completed successfully.")
-            # You can even loop through result.result to get stats per model
+            validate_and_log_arrow_table(
+                pa_table=None,
+                model_name="dbt",
+                layer_type=command,
+                execution_time_seconds=execution_time,
+                status="SUCCESS",
+                extra_details=dbt_details
+            )
         else:
             # If success is False, we check if it was a compilation error, runtime error, etc.
             logger.error("❌ DBT Error. The models failed to execute.")
             if result.exception:
                 logger.error(f"Exception details: {result.exception}")
+            
+            validate_and_log_arrow_table(
+                pa_table=None,
+                model_name="dbt",
+                layer_type=command,
+                execution_time_seconds=execution_time,
+                status="FAILED",
+                validation_error=str(result.exception) if result.exception else "dbt command execution failed",
+                extra_details=dbt_details
+            )
             raise Exception("dbt DuckDB command failed.")
             
     except Exception as e:
         logger.error(f"❌ General Error during dbt execution: {e}")
+        try:
+            from utils.governance import validate_and_log_arrow_table
+            validate_and_log_arrow_table(
+                pa_table=None,
+                model_name="dbt",
+                layer_type=command,
+                execution_time_seconds=time.time() - start_time,
+                status="FAILED",
+                validation_error=str(e),
+                extra_details={"dbt_command": command, "dbt_select": select_path}
+            )
+        except Exception as log_ex:
+            logger.error(f"Failed to log dbt exception to governance table: {log_ex}")
         raise

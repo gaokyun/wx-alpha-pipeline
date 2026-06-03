@@ -1,15 +1,186 @@
 version: 2
-
 sources:
-  - name: gfs_raw
-    description: "Raw GFS Delta tables stored in AWS S3"
-    # Assuming GFS follows a similar folder structure, but without the 'at_' prefix based on your original file
-    # Adjust the S3 path below if your GFS delta tables are structured differently.
-    meta:
-      external_location: "delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/gfs_raw/{name}/')"
-    tables:
-      - name: gfs_upper
-        description: "Raw GFS Upper air data sitting in S3"
-
-      - name: gfs_surface
-        description: "Raw GFS Surface data sitting in S3"
+- name: gfs_raw
+  description: Raw GFS (Global Forecast System) meteorological gridded tables loaded
+    from external Delta tables in S3.
+  meta:
+    external_location: delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/gfs_raw/{name}/')
+  tables:
+  - name: gfs_upper
+    description: 'Raw GFS upper air meteorological records. [Connection Type: deltalake]
+      [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/gfs_raw/gfs_upper/]'
+    columns:
+    - name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - name: forecast_reference_time
+      description: Base runtime of the forecast model run (model cycle run time).
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - name: forecast_cycle
+      description: Hour of the model run cycle (UTC, e.g., 0, 6, 12, 18).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 6
+          - 12
+          - 18
+    - name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - name: isobaricInhPa
+      description: Isobaric pressure level height in hPa (e.g., 200, 500, 850).
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - name: gh
+      description: Raw geopotential height of the pressure level in meters.
+      tags:
+      - meteorological
+      - height
+      tests:
+      - not_null
+    - name: t
+      description: Raw temperature in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+    - name: u
+      description: Raw zonal (U) eastward wind component speed in meters per second.
+      tags:
+      - meteorological
+      - wind
+      tests:
+      - not_null
+    - name: v
+      description: Raw meridional (V) northward wind component speed in meters per
+        second.
+      tags:
+      - meteorological
+      - wind
+      tests:
+      - not_null
+  - name: gfs_surface
+    description: 'Raw GFS surface-level weather parameters. [Connection Type: deltalake]
+      [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/gfs_raw/gfs_surface/]'
+    columns:
+    - name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - name: forecast_cycle
+      description: Hour of the model run cycle (UTC, e.g., 0, 6, 12, 18).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 6
+          - 12
+          - 18
+    - name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - name: t2m
+      description: Air temperature at 2 meters above ground level in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+    - name: d2m
+      description: Dewpoint temperature at 2 meters above ground level in Kelvin.
+      tags:
+      - meteorological
+      - dewpoint
+      tests:
+      - not_null
+    - name: msl
+      description: Mean sea level pressure in Pascals (Pa).
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - name: tp
+      description: Total accumulated precipitation in meters (m).
+      tags:
+      - meteorological
+      - precipitation
+      tests:
+      - not_null
+    - name: heightAboveGround
+      description: Vertical offset height indicating distance from physical surface.
+      tags:
+      - metadata
+      - spatial
+    - name: surface
+      description: Indicator indicating if the grid cell is categorized as surface.
+      tags:
+      - metadata
+      - spatial

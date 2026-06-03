@@ -1,9 +1,10 @@
 import logging
 
 import pendulum
-from airflow.decorators import dag, task
 from airflow.providers.postgres.hooks.postgres import PostgresHook
 from dbt.cli.main import dbtRunner
+from airflow.sdk import task
+from airflow.sdk import dag
 
 logger = logging.getLogger("airflow.task")
 
@@ -25,6 +26,10 @@ def init_db():
     )
     db_hook.run("CREATE SCHEMA IF NOT EXISTS RAW;")
     logger.info("Schema RAW initialized successfully.")
+    
+    # Import and initialize data governance / metadata logging tables
+    from utils.governance import init_metadata_table
+    init_metadata_table()
 
 @task(task_id='dbt_seed_postgres_anchors')
 def execute_dbt_seed_natively_pg():

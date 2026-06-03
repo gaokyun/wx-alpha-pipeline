@@ -2,8 +2,9 @@ import logging
 import os
 
 import pendulum
-from airflow.decorators import dag, task
 from dbt.cli.main import dbtRunner, dbtRunnerResult
+from airflow.sdk import task
+from airflow.sdk import dag
 
 logger = logging.getLogger("airflow.task")
 
@@ -17,7 +18,7 @@ def execute_dbt_seed_natively():
         "seed",
         "--project-dir", dbt_project_path,
         "--profiles-dir", dbt_project_path,
-        "--target", "dev_duckdb"
+        "--target", "dev_duckdb_postgres"
     ]
 
     logger.info(f"Executing dbt natively: dbt {' '.join(dbt_cli_args)}")

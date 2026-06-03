@@ -1,6 +1,6 @@
 import pendulum
-from airflow.decorators import dag
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
+from airflow.sdk import dag
 
 @dag(
     dag_id='bootstrap_sn_meteor',

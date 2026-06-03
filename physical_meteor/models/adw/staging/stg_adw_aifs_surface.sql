@@ -6,7 +6,7 @@ WITH raw_surface AS (
     SELECT * FROM {{ source('adw_raw', 'ext_at_aifs_surface') }}
     WHERE latitude BETWEEN -90 AND 90
       AND longitude BETWEEN -180 AND 360
-      AND forecast_reference_time >= TRUNC(SYSDATE) - 3
+      AND forecast_reference_time >= TRUNC(SYSDATE) - 1
 ),
 
 renamed_and_casted AS (

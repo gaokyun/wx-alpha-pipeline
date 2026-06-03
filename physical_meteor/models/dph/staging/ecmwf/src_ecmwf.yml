@@ -1,26 +1,330 @@
 version: 2
-
 sources:
-  - name: ecmwf_raw
-    description: "Raw ECMWF Delta tables stored in AWS S3"
-    # DuckDB will use this meta tag to dynamically scan the Delta log instead of looking for a physical table
-    meta:
-      external_location: "delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/{name}/')"
-    tables:
-      - name: at_aifs_upper
-        description: "Raw AIFS Upper air data sitting in S3"
-        
-      - name: at_ifs_upper
-        description: "Raw traditional IFS Upper air data sitting in S3"
-        
-      - name: at_aifs_surface
-        description: "Raw AIFS Surface data sitting in S3"
-        
-      - name: at_ifs_surface
-        description: "Raw traditional IFS Surface data sitting in S3"
-        
-      - name: aifs_spread
-        description: "Raw AIFS Spread data sitting in S3"
-        
-      - name: ifs_spread
-        description: "Raw traditional IFS Spread data sitting in S3"
+- name: ecmwf_raw
+  description: Raw ECMWF (European Centre for Medium-Range Weather Forecasts) Delta
+    tables stored in AWS S3.
+  meta:
+    external_location: delta_scan('s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/{name}/')
+  tables:
+  - name: at_aifs_upper
+    description: 'Raw AIFS upper air meteorological data records. [Connection Type:
+      deltalake] [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/at_aifs_upper/]'
+    columns:
+    - &id001
+      name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id002
+      name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id003
+      name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id004
+      name: forecast_cycle
+      description: Hour of the model run cycle (UTC, e.g., 0, 12).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 12
+    - &id005
+      name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - &id006
+      name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id007
+      name: isobaricInhPa
+      description: Isobaric pressure level height in hPa (e.g., 500, 850).
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - &id008
+      name: gh
+      description: Raw geopotential height of the pressure level in meters.
+      tags:
+      - meteorological
+      - height
+      tests:
+      - not_null
+    - &id009
+      name: t
+      description: Raw temperature in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+    - &id010
+      name: u
+      description: Raw zonal (U) eastward wind component speed in meters per second.
+      tags:
+      - meteorological
+      - wind
+      tests:
+      - not_null
+    - &id011
+      name: v
+      description: Raw meridional (V) northward wind component speed in meters per
+        second.
+      tags:
+      - meteorological
+      - wind
+      tests:
+      - not_null
+  - name: at_ifs_upper
+    description: 'Raw traditional physical ECMWF IFS upper air meteorological data
+      records. [Connection Type: deltalake] [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/at_ifs_upper/]'
+    columns:
+    - *id001
+    - *id002
+    - *id003
+    - *id004
+    - *id005
+    - *id006
+    - *id007
+    - *id008
+    - *id009
+    - *id010
+    - *id011
+  - name: at_aifs_surface
+    description: 'Raw AIFS surface level parameters. [Connection Type: deltalake]
+      [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/at_aifs_surface/]'
+    columns:
+    - &id012
+      name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id013
+      name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id014
+      name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id015
+      name: forecast_cycle
+      description: Hour of the model run cycle (UTC, e.g., 0, 12).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 12
+    - &id016
+      name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - &id017
+      name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id018
+      name: t2m
+      description: Air temperature at 2 meters above ground level in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+    - &id019
+      name: d2m
+      description: Dewpoint temperature at 2 meters above ground level in Kelvin.
+      tags:
+      - meteorological
+      - dewpoint
+      tests:
+      - not_null
+    - &id020
+      name: msl
+      description: Mean sea level pressure in Pascals (Pa).
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - &id021
+      name: tp
+      description: Total accumulated precipitation in meters (m).
+      tags:
+      - meteorological
+      - precipitation
+      tests:
+      - not_null
+    - &id022
+      name: heightAboveGround
+      description: Vertical offset height indicating distance from physical surface.
+      tags:
+      - metadata
+      - spatial
+    - &id023
+      name: surface
+      description: Indicator indicating if the grid cell is categorized as surface.
+      tags:
+      - metadata
+      - spatial
+  - name: at_ifs_surface
+    description: 'Raw traditional physical ECMWF IFS surface level parameters. [Connection
+      Type: deltalake] [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/at_ifs_surface/]'
+    columns:
+    - *id012
+    - *id013
+    - *id014
+    - *id015
+    - *id016
+    - *id017
+    - *id018
+    - *id019
+    - *id020
+    - *id021
+    - *id022
+    - *id023
+  - name: aifs_spread
+    description: 'Raw AIFS ensemble spread data containing standard deviation measures.
+      [Connection Type: deltalake] [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/aifs_spread/]'
+    columns:
+    - &id024
+      name: latitude
+      description: Geographical latitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id025
+      name: longitude
+      description: Geographical longitude of the grid point.
+      tags:
+      - spatial
+      - coordinate
+      tests:
+      - not_null
+    - &id026
+      name: forecast_reference_time
+      description: Base runtime of the forecast model run.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id027
+      name: forecast_cycle
+      description: Hour of the model run cycle (UTC, e.g., 0, 12).
+      tags:
+      - temporal
+      - hour
+      tests:
+      - not_null
+      - accepted_values:
+          values:
+          - 0
+          - 12
+    - &id028
+      name: step_hours
+      description: Forecast lead time hours from the base model run time.
+      tags:
+      - temporal
+      - forecast
+      tests:
+      - not_null
+    - &id029
+      name: valid_time
+      description: The targeted UTC timestamp representing when the forecast is valid.
+      tags:
+      - temporal
+      - date
+      tests:
+      - not_null
+    - &id030
+      name: isobaricInhPa
+      description: Isobaric pressure level height in hPa.
+      tags:
+      - meteorological
+      - pressure
+      tests:
+      - not_null
+    - &id031
+      name: gh
+      description: Ensemble spread (standard deviation) for geopotential height in
+        meters.
+      tags:
+      - meteorological
+      - height
+      tests:
+      - not_null
+    - &id032
+      name: t
+      description: Ensemble spread (standard deviation) for temperature in Kelvin.
+      tags:
+      - meteorological
+      - temperature
+      tests:
+      - not_null
+  - name: ifs_spread
+    description: 'Raw traditional physical ECMWF IFS ensemble spread data. [Connection
+      Type: deltalake] [Connection URL: s3://oci-s3-ykg-storage/weather_data/delta_lake/ecmwf_raw/ifs_spread/]'
+    columns:
+    - *id024
+    - *id025
+    - *id026
+    - *id027
+    - *id028
+    - *id029
+    - *id030
+    - *id031
+    - *id032

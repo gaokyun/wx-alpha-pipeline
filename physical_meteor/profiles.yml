@@ -1,10 +1,10 @@
 # profiles.yml
 physical_meteor:
-  target: dev_duckdb
+  target: dev_duckdb_postgres
   outputs:
-    dev_duckdb:
+    dev_duckdb_postgres:
       type: duckdb
-      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/local_catalog.duckdb') }}"
+      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/postgres/local_catalog.duckdb') }}"
       
       # 🔴 ADD THIS KEY LINE:
       database: local_catalog
@@ -46,7 +46,7 @@ physical_meteor:
 
     dev_duckdb_mysql:
       type: duckdb
-      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/local_catalog.duckdb') }}"
+      path: "{{ env_var('DUCKDB_PATH', '/opt/airflow/data/mysql/local_catalog.duckdb') }}"
       database: local_catalog
       threads: 1
       extensions:
@@ -97,13 +97,13 @@ physical_meteor:
       port: 5432
       dbname: PHYSICAL_METEOR_DB
       schema: RAW
-      threads: 4
+      threads: 1
 
     adw_prod:
       type: oracle
       user: "{{ env_var('ORACLE_USER', 'PHYSICAL_METEOR_RAW') }}"
       pass: "{{ env_var('ORACLE_PASSWORD', '***REMOVED***') }}"
-      connection_string: "(description=(address=(protocol=tcps)(port=1522)(host={{ env_var('ORACLE_HOST', 'adb.us-ashburn-1.oraclecloud.com') }}))(connect_data=(service_name={{ env_var('ORACLE_SERVICE', 'g6fd1d6c71405c0_meteor0ykg0aidw_high.adb.oraclecloud.com') }}))(security=(ssl_server_dn_match=no)))"
+      connection_string: "(description=(address=(protocol=tcps)(port=1522)(host={{ env_var('ORACLE_HOST', 'adb.us-ashburn-1.oraclecloud.com') }}))(connect_data=(service_name={{ env_var('ORACLE_SERVICE', 'g6fd1d6c71405c0_meteor0ykg0aidw_low.adb.oraclecloud.com') }}))(security=(ssl_server_dn_match=no)))"
       database: G6FD1D6C71405C0_METEOR0YKG0AIDW
       schema: "{{ env_var('ORACLE_SCHEMA', 'PHYSICAL_METEOR_RAW') }}"
       threads: 4
@@ -122,6 +122,3 @@ physical_meteor:
       username: admin
       password: "{{ env_var('ORACLE_PASSWORD') }}"
       schema: gaokyun_db
-
-
-      

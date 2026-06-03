@@ -78,7 +78,10 @@ c.DockerSpawner.environment = {
     'AWS_REGION': os.environ.get('AWS_REGION', 'us-east-1'),
     'ORACLE_MH_PASSWORD': os.environ.get('ORACLE_MH_PASSWORD', ''),
     'MYSQL_HOST': os.environ.get('MYSQL_HOST', ''),
-    'MYSQL_USER': os.environ.get('MYSQL_USER', '')
+    'MYSQL_USER': os.environ.get('MYSQL_USER', ''),
+    'ADW_CONNECT_DESCRIPTOR': f"(description=(address=(protocol=tcps)(port=1522)(host={os.environ.get('ORACLE_HOST', '')}))(connect_data=(service_name={os.environ.get('ORACLE_SERVICE', '')}))(security=(ssl_server_dn_match=no)))",
+    'ADW_USERNAME': os.environ.get('ORACLE_USER', 'PHYSICAL_METEOR_RAW'),
+    'ADW_PASSWORD': os.environ.get('ORACLE_PASSWORD', '')
 }
 
 # --- 4. Persistence ---

@@ -2,16 +2,19 @@ import os
 import requests
 import pendulum
 from bs4 import BeautifulSoup
+from functools import reduce
+import operator
 
 from airflow.sdk import dag, task, Asset
 from airflow.providers.docker.operators.docker import DockerOperator
 from docker.types import Mount
+from airflow.providers.standard.sensors.python import PythonSensor
 
 OCI_BUCKET = os.getenv('OCI_OBJECT_STORAGE_BUCKET', 'oci-s3-ykg-storage')
 DBT_PROJECT_PATH = os.getenv('DBT_PROJECT_PATH', '/opt/airflow/physical_meteor')
 HOST_PROJECT_PATH = os.getenv('HOST_PROJECT_PATH', '/home/airflow/dev/wx-alpha-pipeline')
 
-DUCKDB_POOL = 'duckdb_single_writer'
+DUCKDB_POOL = 'dph_single_writer'
 
 SCHEDULES = {
     'aifs-upper': 6.93,
@@ -92,7 +95,7 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
             soft_fail=True,
             timeout=7200
         )
-        def wait_for_data(data_interval_end: pendulum.DateTime) -> bool:
+        def wait_for_data(data_interval_end: pendulum.DateTime = None) -> bool:
             target_date, cycle = get_cycle_and_date(data_interval_end, t_key)
             date_str = target_date.format('YYYYMMDD')
             
@@ -142,7 +145,7 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
                     print(f"⚠️ ECMWF Sensor Error: {e}")
                     return False
 
-        @task(task_id=f'download_{mod}_{ttyp}', outlets=[ASSETS[t_key]], pool=DUCKDB_POOL)
+        @task(task_id=f'download_{mod}_{ttyp}', outlets=[ASSETS[t_key]])
         def run_download(data_interval_end: pendulum.DateTime = None):
             target_date, cycle = get_cycle_and_date(data_interval_end, t_key)
             if mod == 'gfs':
@@ -166,7 +169,7 @@ for task_key, buffer_hours in SCHEDULES.items():
     model, ttype = task_key.split('-')
     globals()[f"extract_{model}_{ttype}_dag"] = create_extraction_dag(task_key, model, ttype, buffer_hours)
 
-from airflow.utils.task_group import TaskGroup
+from airflow.sdk import TaskGroup
 
 WEATHER_MODELS = {
     'gfs_upper': {'asset_trigger': ASSETS['gfs-upper'], 'selector': 'stg_gfs_upper+', 'match_key': 'gfs_raw/gfs_upper'},
@@ -182,74 +185,172 @@ WEATHER_MODELS = {
 @dag(
     dag_id='weather_ops.transform.all_models_dbt_duckdb',
     default_args=default_args,
-    schedule=list(ASSETS.values()), # Trigger on ANY of the 8 assets updating
+    schedule=reduce(operator.or_, ASSETS.values()), # Trigger on ANY of the 8 assets updating
     start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
     catchup=False,
-    doc_md="Consolidated DuckDB transformation pipeline with TaskGroup visual layout and Pattern A branching.",
+    max_active_runs=1, # Ensure only one run executes at a time to queue subsequent trigger events
+    doc_md="Consolidated DuckDB transformation pipeline with TaskGroup visual layout, 5-minute debounce window, and Variable-based event coalescing.",
     tags=['dbt', 'duckdb', 'gold', 'consensus']
 )
 def unified_forecast_transform_duckdb():
 
-    # A. Branching task to determine which targets to execute
+    # 1. Debounce task: sleeps until 5 minutes have elapsed since the DAG run start time
+    # This allows all incoming assets triggered within a 5-minute window to register before processing.
+    def check_debounce_time(dag_run, **context):
+        import pendulum
+        elapsed = pendulum.now("UTC") - dag_run.start_date
+        return elapsed.total_seconds() >= 300
+
+    wait_node = PythonSensor(
+        task_id='wait_for_pooling',
+        python_callable=check_debounce_time,
+        poke_interval=60,
+        timeout=600,
+        mode='reschedule'
+    )
+
+    # 2. Branching task to determine which targets to execute based on new asset events
     @task.branch(task_id='choose_branch')
     def determine_branches(**context):
-        events = context.get('triggering_dataset_events') or {}
-        
-        # If no events (manual run or backfill), trigger all tasks
-        if not events:
+        # Allow manual override via dag_run.conf (e.g. triggered via UI/CLI with config)
+        dag_run = context.get("dag_run")
+        if dag_run and dag_run.conf and "branches" in dag_run.conf:
+            return dag_run.conf["branches"]
+
+        import psycopg2
+
+        # 1. Connect to PHYSICAL_METEOR_DB to get the last processed event ID
+        conn_pm = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='PHYSICAL_METEOR_DB', port=5432)
+        cursor_pm = conn_pm.cursor()
+        cursor_pm.execute("CREATE TABLE IF NOT EXISTS raw.transform_coalesce_state (last_processed_event_id BIGINT);")
+        cursor_pm.execute("SELECT last_processed_event_id FROM raw.transform_coalesce_state LIMIT 1;")
+        row_pm = cursor_pm.fetchone()
+        last_id = row_pm[0] if row_pm else 0
+        cursor_pm.close()
+        conn_pm.close()
+
+        # 2. Connect to airflow metadata DB to query new asset events
+        conn_af = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='airflow', port=5432)
+        cursor_af = conn_af.cursor()
+        sql = """
+            SELECT ae.id, a.uri FROM asset_event ae
+            JOIN asset a ON ae.asset_id = a.id
+            WHERE ae.id > %s 
+              AND a.name IN ('gfs_upper', 'gfs_surface', 'at_ifs_upper', 'at_ifs_surface', 'ifs_spread', 'at_aifs_upper', 'at_aifs_surface', 'aifs_spread')
+            ORDER BY ae.id ASC;
+        """
+        cursor_af.execute(sql, (last_id,))
+        res = cursor_af.fetchall()
+        cursor_af.close()
+        conn_af.close()
+
+        run_type = dag_run.run_type if dag_run else "manual"
+        is_manual = run_type == "manual"
+
+        # If it was manual run, run all models
+        if is_manual:
             all_tasks = []
             for model_id in WEATHER_MODELS.keys():
                 family = model_id.split('_')[0]
                 all_tasks.append(f"{family}.dbt_run_{model_id}")
             return all_tasks
-            
+
+        # If no new asset events since last run, skip all downstream processing
+        if not res:
+            return []
+
+        # Track the latest event ID we are processing in this batch
+        max_id = max([row[0] for row in res])
+        ready_uris = [row[1] for row in res]
+
+        # 3. Update the state in PHYSICAL_METEOR_DB
+        conn_pm = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='PHYSICAL_METEOR_DB', port=5432)
+        cursor_pm = conn_pm.cursor()
+        cursor_pm.execute("DELETE FROM raw.transform_coalesce_state;")
+        cursor_pm.execute("INSERT INTO raw.transform_coalesce_state (last_processed_event_id) VALUES (%s);", (max_id,))
+        conn_pm.commit()
+        cursor_pm.close()
+        conn_pm.close()
+
         branches = []
-        for uri in events.keys():
+        for uri in ready_uris:
             for model_id, config in WEATHER_MODELS.items():
                 if config['match_key'] in uri:
                     family = model_id.split('_')[0]
                     branches.append(f"{family}.dbt_run_{model_id}")
-                    
-        # Fallback to all if somehow empty
-        if not branches:
-            for model_id in WEATHER_MODELS.keys():
-                family = model_id.split('_')[0]
-                branches.append(f"{family}.dbt_run_{model_id}")
-                
-        return branches
+
+        return list(set(branches))
 
     # B. Define groups and dbt execution tasks
     branch_node = determine_branches()
+
+    # C. Unified Postgres gold views refresh task (Early Bird Mode)
+    unified_gold = DockerOperator(
+        task_id='refresh_gold_unified',
+        image="dbt-postgres:latest",
+        api_version="auto",
+        auto_remove="success",
+        mount_tmp_dir=False,
+        network_mode="wx-alpha-pipeline_default",
+        mounts=[
+            Mount(
+                source=f"{HOST_PROJECT_PATH}/physical_meteor",
+                target="/usr/app/physical_meteor",
+                type="bind",
+            ),
+            Mount(
+                source=f"{HOST_PROJECT_PATH}/data",
+                target="/opt/airflow/data",
+                type="bind",
+            ),
+        ],
+        environment={
+            "OCI_ACCESS_KEY": os.getenv("OCI_ACCESS_KEY"),
+            "OCI_SECRET_KEY": os.getenv("OCI_SECRET_KEY"),
+            "POSTGRES_USERNAME": os.getenv("POSTGRES_USERNAME", "airflow"),
+            "POSTGRES_PASS": os.getenv("POSTGRES_PASS", "airflow"),
+        },
+        command="dbt run --project-dir /usr/app/physical_meteor --profiles-dir /usr/app/physical_meteor --target dev_postgres --select fct_upper_forecast fct_surface_forecast fct_spread_forecast",
+        pool='default_pool',
+        trigger_rule='none_failed_min_one_success'
+    )
     
-    families = ['gfs', 'aifs', 'ifs']
+    def _make_dbt_task(mid: str, sel: str):
+        """Factory that creates a uniquely-scoped @task per model, avoiding the
+        duplicate qualname bug that occurs when @task functions are redefined
+        inside a loop with the same name."""
+        @task(task_id=f'dbt_run_{mid}', pool=DUCKDB_POOL)
+        def _run_dbt_model(selector: str = sel):
+            from etl.meteorology_duckdb import run_dbt_duckdb
+            run_dbt_duckdb(command="run", select_path=selector)
+        return _run_dbt_model
+
+    # 1. Initialize a list to hold the TaskGroup objects
+    dbt_task_groups = []
+    
+    families = ['aifs', 'gfs', 'ifs']
     for family in families:
+        # 2. Assign the context manager to a variable (tg)
         with TaskGroup(group_id=family) as tg:
             family_models = {k: v for k, v in WEATHER_MODELS.items() if k.startswith(family)}
-            
-            for model_id, config in family_models.items():
-                @task(task_id=f'dbt_run_{model_id}', pool=DUCKDB_POOL)
-                def execute_models(selector=config['selector']):
-                    from etl.meteorology_duckdb import run_dbt_duckdb
-                    run_dbt_duckdb(
-                        command="run",
-                        select_path=selector
-                    )
-                
-                # Set dependency: branch_node -> task inside TaskGroup
-                branch_node >> execute_models()
 
-globals()["dag_unified_transform_duckdb"] = unified_forecast_transform_duckdb()
+            for model_id, config in family_models.items():
+                # Simply instantiate the task; it automatically binds to the current TaskGroup (tg)
+                t_instance = _make_dbt_task(model_id, config['selector'])()
+
+        # 3. Append the populated TaskGroup to our list
+        dbt_task_groups.append(tg)
+
+    # 4. Map the dependencies at the root level using the TaskGroup objects
+    wait_node >> branch_node >> dbt_task_groups >> unified_gold
+
+unified_forecast_transform_duckdb()
 
 
 @dag(
     dag_id='weather_ops.transform.unified_forecast_refresh_v2',
     default_args=default_args,
-    schedule=[
-        ASSETS['gfs-upper'], ASSETS['gfs-surface'],
-        ASSETS['aifs-upper'], ASSETS['aifs-surface'],
-        ASSETS['ifs-upper'], ASSETS['ifs-surface'],
-        ASSETS['ifs-spread'], ASSETS['aifs-spread']
-    ],
+    schedule=None,  # Triggered by centralized master DAG
     start_date=pendulum.datetime(2026, 3, 20, tz="UTC"),
     catchup=False,
     doc_md="Refreshes the final consensus views for both Upper Air and Surface metrics.",
@@ -257,7 +358,7 @@ globals()["dag_unified_transform_duckdb"] = unified_forecast_transform_duckdb()
 )
 def refresh_unified_forecasts_v2():
 
-    def dbt_task(task_id, select_statement, image="dbt-duckdb:latest", target="dev_duckdb", pool=DUCKDB_POOL):
+    def dbt_task(task_id, select_statement, image="dbt-duckdb:latest", target="dev_duckdb_postgres", pool=DUCKDB_POOL):
         return DockerOperator(
             task_id=task_id,
             image=image,

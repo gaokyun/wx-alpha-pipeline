@@ -1,7 +1,8 @@
 import pendulum
 
-from airflow.decorators import dag, task
 from airflow.providers.postgres.hooks.postgres import PostgresHook
+from airflow.sdk import dag
+from airflow.sdk import task
 
 @dag(
     dag_id='bootstrap_pg_meteor',
@@ -34,6 +35,10 @@ def bootstrap_pg_meteor():
         )
         db_hook.run("CREATE SCHEMA IF NOT EXISTS RAW;")
         print("Postgres: RAW schema verified.")
+        
+        # Import and initialize data governance / metadata logging tables
+        from utils.governance import init_metadata_table
+        init_metadata_table()
 
     init_db()
 

@@ -1,7 +1,8 @@
 import pendulum
 
-from airflow.decorators import dag, task
-from airflow.operators.trigger_dagrun import TriggerDagRunOperator
+from airflow.sdk import dag
+from airflow.sdk import task
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 
 default_args = {
     'owner': 'meteorologist',

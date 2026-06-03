@@ -1,6 +1,11 @@
 {
-  "duckdb_single_writer": {
-    "description": "Restricts DuckDB access to one concurrent writer to prevent IO locking.",
+  "dph_single_writer": {
+    "description": "Restricts DuckDB-Postgres Hybrid to one concurrent writer to prevent IO locking.",
+    "slots": 1,
+    "include_deferred": false
+  },
+  "dmh_single_writer": {
+    "description": "Restricts DuckDB-MySQL Hybrid to one concurrent writer to prevent IO locking.",
     "slots": 1,
     "include_deferred": false
   },
