@@ -18,7 +18,7 @@ physical_meteor:
       
       # 🟢 THE NATIVE FIX: Globally scoped attach block with strict LOWERCASE alias
       attach:
-        - path: "postgresql://{{ env_var('POSTGRES_USERNAME', 'airflow') }}:{{ env_var('POSTGRES_PASS', 'airflow') }}@postgres:5432/PHYSICAL_METEOR_DB"
+        - path: "postgresql://{{ env_var('POSTGRES_USERNAME') }}:{{ env_var('POSTGRES_PASS') }}@postgres:5432/PHYSICAL_METEOR_DB"
           type: postgres
           alias: PHYSICAL_METEOR_DB
       
@@ -102,8 +102,8 @@ physical_meteor:
     adw_prod:
       type: oracle
       user: "{{ env_var('ORACLE_USER', 'PHYSICAL_METEOR_RAW') }}"
-      pass: "{{ env_var('ORACLE_PASSWORD', '***REMOVED***') }}"
-      connection_string: "(description=(address=(protocol=tcps)(port=1522)(host={{ env_var('ORACLE_HOST', 'adb.us-ashburn-1.oraclecloud.com') }}))(connect_data=(service_name={{ env_var('ORACLE_SERVICE', 'g6fd1d6c71405c0_meteor0ykg0aidw_low.adb.oraclecloud.com') }}))(security=(ssl_server_dn_match=no)))"
+      pass: "{{ env_var('ORACLE_PASSWORD') }}"
+      connection_string: "(description=(address=(protocol=tcps)(port=1522)(host={{ env_var('ORACLE_HOST', 'adb.us-ashburn-1.oraclecloud.com') }}))(connect_data=(service_name={{ env_var('ORACLE_SERVICE', 'g6fd1d6c71405c0_meteor0ykg0aidw_medium.adb.oraclecloud.com') }}))(security=(ssl_server_dn_match=no)))"
       database: G6FD1D6C71405C0_METEOR0YKG0AIDW
       schema: "{{ env_var('ORACLE_SCHEMA', 'PHYSICAL_METEOR_RAW') }}"
       threads: 4

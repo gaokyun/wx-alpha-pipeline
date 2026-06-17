@@ -53,6 +53,9 @@ data/
 *.key
 *.pem
 *.ppk
+config/xtable/catalog_oci.yaml
+config/xtable/core-site.xml
+config/databricks*secret*.sh
 
 # Ignore Jupyter internals
 .jupyter/
