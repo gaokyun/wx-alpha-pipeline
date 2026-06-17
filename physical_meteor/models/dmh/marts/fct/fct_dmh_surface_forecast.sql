@@ -1,7 +1,11 @@
 {{ config(
-    materialized='table',
+    materialized='mysql_view',
     alias='fct_surface_forecast'
 ) }}
+
+-- depends_on: {{ ref('fct_dmh_gfs_surface') }}
+-- depends_on: {{ ref('fct_dmh_aifs_surface') }}
+-- depends_on: {{ ref('fct_dmh_ifs_surface') }}
 
 SELECT
     surrogate_merge_key,
@@ -21,7 +25,7 @@ SELECT
     total_precipitation_m,
     total_precipitation_mm,
     dbt_updated_at
-FROM {{ ref('fct_dmh_gfs_surface') }}
+FROM fct_gfs_surface
 UNION ALL
 SELECT
     surrogate_merge_key,
@@ -41,7 +45,7 @@ SELECT
     total_precipitation_m,
     total_precipitation_mm,
     dbt_updated_at
-FROM {{ ref('fct_dmh_aifs_surface') }}
+FROM fct_aifs_surface
 UNION ALL
 SELECT
     surrogate_merge_key,
@@ -61,4 +65,4 @@ SELECT
     total_precipitation_m,
     total_precipitation_mm,
     dbt_updated_at
-FROM {{ ref('fct_dmh_ifs_surface') }}
+FROM fct_ifs_surface

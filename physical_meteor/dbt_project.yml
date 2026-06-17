@@ -73,7 +73,7 @@ models:
           atomic:
             +schema: gold
             +materialized: incremental
-            +incremental_strategy: delete+insert #insert_overwrite
+            +incremental_strategy: append
             +tags: ["marts", "gold", "atomic"]
           
           # 2. The "Dining Room" (The only thing users see)
@@ -81,6 +81,7 @@ models:
             +enabled: "{{ target.type == 'postgres' }}"
             +schema: gold      # Results in: main_gold (custom gold schema in postgres)
             +materialized: view
+            +pre-hook: "SET max_parallel_workers_per_gather = 0;"
             +tags: ["unified", "gold", "marts"]
 
     # --- POSTGRES-DUCKDB HYBRID (PDH) ---

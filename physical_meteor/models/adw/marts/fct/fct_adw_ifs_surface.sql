@@ -1,6 +1,10 @@
 {{ config(
+    incremental_strategy='merge',
     alias='fct_ifs_surface',
-    unique_key=['cycle_date', 'cycle_hour', 'forecast_step_hours', 'lat_i', 'lon_i']
+    unique_key=['cycle_date', 'cycle_hour', 'forecast_step_hours', 'lat_i', 'lon_i'],
+    parallel=false,
+    incremental_predicates=["DBT_INTERNAL_DEST.cycle_date >= TRUNC(SYSDATE) - 1"],
+    query_band='action=dbt_merge;model=fct_adw_ifs_surface;'
 ) }}
 
 SELECT 
@@ -25,5 +29,5 @@ FROM {{ ref('stg_adw_ifs_surface') }}
 {% if is_incremental() %}
     WHERE forecast_reference_time >= TRUNC(SYSDATE) - 1
 {% else %}
-    WHERE forecast_reference_time >= TRUNC(SYSDATE) - 3
+    WHERE forecast_reference_time >= TRUNC(SYSDATE) - 1
 {% endif %}

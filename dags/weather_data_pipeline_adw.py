@@ -100,6 +100,7 @@ def refresh_unified_forecasts_adw():
                 dbt run --project-dir {DBT_PROJECT_PATH} \
                         --profiles-dir {DBT_PROJECT_PATH} \
                         --target adw_prod \
+                        --full-refresh \
                         --select {select_statement}
             """,
             pool=pool

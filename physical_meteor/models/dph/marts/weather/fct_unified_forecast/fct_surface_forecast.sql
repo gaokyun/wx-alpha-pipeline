@@ -5,7 +5,7 @@
 
 SELECT
     surrogate_merge_key,
-    weather_model,
+    'gfs'::character varying AS weather_model,
     cycle_date,
     cycle_hour,
     forecast_step_hours,
@@ -26,7 +26,7 @@ SELECT
 UNION ALL
 SELECT
     surrogate_merge_key,
-    weather_model,
+    'aifs'::character varying AS weather_model,
     cycle_date,
     cycle_hour,
     forecast_step_hours,
@@ -49,7 +49,7 @@ SELECT
 UNION ALL
 SELECT
     surrogate_merge_key,
-    weather_model,
+    'ifs'::character varying AS weather_model,
     cycle_date,
     cycle_hour,
     forecast_step_hours,

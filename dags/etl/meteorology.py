@@ -318,7 +318,7 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_s3_path, storage_options)
         
         # 2. Execute vacuum. YOU MUST SET dry_run=False to actually delete files!
         deleted_files = dt_clean.vacuum(
-            retention_hours=0, 
+            retention_hours=2, 
             enforce_retention_duration=False, 
             dry_run=False  # <--- The silver bullet
         )

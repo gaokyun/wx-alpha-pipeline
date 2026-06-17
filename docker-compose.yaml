@@ -91,6 +91,15 @@ x-airflow-common: &airflow-common
     OCI_ENDPOINT_URL: ${OCI_API_ENDPOINT}
     OCI_NAMESPACE: ${OCI_OBJECT_STORAGE_NAMESPACE}
 
+    # --- Oracle ADW (TNS_ADMIN must point to sqlnet.ora to apply DISABLE_OOB=ON) ---
+    TNS_ADMIN: /opt/airflow/physical_meteor/network/admin
+    ORACLE_HOST: ${ORACLE_HOST}
+    ORACLE_PORT: ${ORACLE_PORT}
+    ORACLE_SERVICE: ${ORACLE_SERVICE}
+    ORACLE_USER: ${ORACLE_USER}
+    ORACLE_PASSWORD: ${ORACLE_PASSWORD}
+    ORACLE_SCHEMA: ${ORACLE_SCHEMA}
+
     DATABRICKS_HOST: ${DATABRICKS_HOST}
     DATABRICKS_TOKEN: ${DATABRICKS_TOKEN}
 
@@ -133,6 +142,12 @@ services:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: ${POSTGRES_PASS}
       POSTGRES_DB: airflow
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_ACCESS_KEY_ID: ${OCI_OBJECT_STORAGE_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${OCI_OBJECT_STORAGE_SECRET_KEY}
+      AWS_REGION: ${OCI_OBJECT_STORAGE_REGION}
+      AWS_ENDPOINT_URL: ${OCI_API_ENDPOINT}
+    command: ["postgres", "-c", "shared_preload_libraries=citus"]
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
       - ./postgres_init_db.sql:/docker-entrypoint-initdb.d/init-db.sql

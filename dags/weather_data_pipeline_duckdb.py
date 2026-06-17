@@ -155,7 +155,8 @@ def create_extraction_dag(t_key: str, mod: str, ttyp: str, buf_hours: float):
             else:
                 from etl.meteorology_duckdb import download_ecmwf_unified
                 if ttyp == 'spread' and cycle not in [0, 12]:
-                    return "SKIPPED"
+                    from airflow.exceptions import AirflowSkipException
+                    raise AirflowSkipException("Spread cycle only runs on 00z and 12z. Skipping.")
                 if not download_ecmwf_unified(target_date, cycle, TARGET_STEPS, mod, ttyp):
                     raise Exception(f"ECMWF {ttyp} extraction batch failed")
             return "SUCCESS"
@@ -219,30 +220,27 @@ def unified_forecast_transform_duckdb():
 
         import psycopg2
 
-        # 1. Connect to PHYSICAL_METEOR_DB to get the last processed event ID
-        conn_pm = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='PHYSICAL_METEOR_DB', port=5432)
-        cursor_pm = conn_pm.cursor()
-        cursor_pm.execute("CREATE TABLE IF NOT EXISTS raw.transform_coalesce_state (last_processed_event_id BIGINT);")
-        cursor_pm.execute("SELECT last_processed_event_id FROM raw.transform_coalesce_state LIMIT 1;")
-        row_pm = cursor_pm.fetchone()
-        last_id = row_pm[0] if row_pm else 0
-        cursor_pm.close()
-        conn_pm.close()
-
-        # 2. Connect to airflow metadata DB to query new asset events
-        conn_af = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='airflow', port=5432)
-        cursor_af = conn_af.cursor()
+        # Connect directly to the Airflow metadata DB read-only
+        conn = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='airflow', port=5432)
+        cursor = conn.cursor()
+        
+        dag_run_start = dag_run.start_date if (dag_run and dag_run.start_date) else pendulum.now("UTC")
         sql = """
-            SELECT ae.id, a.uri FROM asset_event ae
+            SELECT DISTINCT a.uri FROM asset_event ae
             JOIN asset a ON ae.asset_id = a.id
-            WHERE ae.id > %s 
-              AND a.name IN ('gfs_upper', 'gfs_surface', 'at_ifs_upper', 'at_ifs_surface', 'ifs_spread', 'at_aifs_upper', 'at_aifs_surface', 'aifs_spread')
-            ORDER BY ae.id ASC;
+            WHERE ae.timestamp > COALESCE(
+                (SELECT start_date FROM task_instance
+                 WHERE dag_id = 'weather_ops.transform.all_models_dbt_duckdb'
+                   AND task_id = 'choose_branch'
+                   AND state = 'success'
+                 ORDER BY start_date DESC LIMIT 1),
+                %s::timestamp - INTERVAL '15 minutes'
+            );
         """
-        cursor_af.execute(sql, (last_id,))
-        res = cursor_af.fetchall()
-        cursor_af.close()
-        conn_af.close()
+        cursor.execute(sql, (dag_run_start,))
+        res = cursor.fetchall()
+        cursor.close()
+        conn.close()
 
         run_type = dag_run.run_type if dag_run else "manual"
         is_manual = run_type == "manual"
@@ -259,18 +257,7 @@ def unified_forecast_transform_duckdb():
         if not res:
             return []
 
-        # Track the latest event ID we are processing in this batch
-        max_id = max([row[0] for row in res])
-        ready_uris = [row[1] for row in res]
-
-        # 3. Update the state in PHYSICAL_METEOR_DB
-        conn_pm = psycopg2.connect(host='postgres', user='airflow', password='airflow', database='PHYSICAL_METEOR_DB', port=5432)
-        cursor_pm = conn_pm.cursor()
-        cursor_pm.execute("DELETE FROM raw.transform_coalesce_state;")
-        cursor_pm.execute("INSERT INTO raw.transform_coalesce_state (last_processed_event_id) VALUES (%s);", (max_id,))
-        conn_pm.commit()
-        cursor_pm.close()
-        conn_pm.close()
+        ready_uris = [row[0] for row in res]
 
         branches = []
         for uri in ready_uris:
@@ -314,6 +301,36 @@ def unified_forecast_transform_duckdb():
         pool='default_pool',
         trigger_rule='none_failed_min_one_success'
     )
+
+    unified_gold_cities = DockerOperator(
+        task_id='refresh_gold_cities',
+        image="dbt-postgres:latest",
+        api_version="auto",
+        auto_remove="success",
+        mount_tmp_dir=False,
+        network_mode="wx-alpha-pipeline_default",
+        mounts=[
+            Mount(
+                source=f"{HOST_PROJECT_PATH}/physical_meteor",
+                target="/usr/app/physical_meteor",
+                type="bind",
+            ),
+            Mount(
+                source=f"{HOST_PROJECT_PATH}/data",
+                target="/opt/airflow/data",
+                type="bind",
+            ),
+        ],
+        environment={
+            "OCI_ACCESS_KEY": os.getenv("OCI_ACCESS_KEY"),
+            "OCI_SECRET_KEY": os.getenv("OCI_SECRET_KEY"),
+            "POSTGRES_USERNAME": os.getenv("POSTGRES_USERNAME", "airflow"),
+            "POSTGRES_PASS": os.getenv("POSTGRES_PASS", "airflow"),
+        },
+        command="dbt run --project-dir /usr/app/physical_meteor --profiles-dir /usr/app/physical_meteor --target dev_postgres --select fct_upper_forecast_cities fct_surface_forecast_cities fct_spread_forecast_cities",
+        pool='default_pool',
+        trigger_rule='all_success'
+    )
     
     def _make_dbt_task(mid: str, sel: str):
         """Factory that creates a uniquely-scoped @task per model, avoiding the
@@ -342,7 +359,7 @@ def unified_forecast_transform_duckdb():
         dbt_task_groups.append(tg)
 
     # 4. Map the dependencies at the root level using the TaskGroup objects
-    wait_node >> branch_node >> dbt_task_groups >> unified_gold
+    wait_node >> branch_node >> dbt_task_groups >> unified_gold >> unified_gold_cities
 
 unified_forecast_transform_duckdb()
 

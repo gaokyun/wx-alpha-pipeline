@@ -1,6 +1,217 @@
-station_id,city_name,state,region,market_weight,associated_hub
-KORD,Chicago,IL,Midwest,0.30,Chicago Citygate
-KNYC,New York City,NY,East,0.25,Transco Zone 6
-KBOS,Boston,MA,NewEngland,0.15,Algonquin Citygate
-KIAH,Houston,TX,South,0.20,Houston Ship Channel
-KSEA,Seattle,WA,West,0.10,Sumas / Northwest
+city_name,state,region,market_weight,associated_hub,lat_i,lon_i,lat,lon
+New York,NY,East,0.25,Transco Zone 6,130500,105750,40.5,-74.25
+New York,NY,East,0.25,Transco Zone 6,130500,106000,40.5,-74.0
+New York,NY,East,0.25,Transco Zone 6,130500,106250,40.5,-73.75
+New York,NY,East,0.25,Transco Zone 6,130750,105750,40.75,-74.25
+New York,NY,East,0.25,Transco Zone 6,130750,106000,40.75,-74.0
+New York,NY,East,0.25,Transco Zone 6,130750,106250,40.75,-73.75
+New York,NY,East,0.25,Transco Zone 6,131000,105750,41.0,-74.25
+New York,NY,East,0.25,Transco Zone 6,131000,106000,41.0,-74.0
+New York,NY,East,0.25,Transco Zone 6,131000,106250,41.0,-73.75
+Chicago,IL,Midwest,0.3,Chicago Citygate,131750,92000,41.75,-88.0
+Chicago,IL,Midwest,0.3,Chicago Citygate,131750,92250,41.75,-87.75
+Chicago,IL,Midwest,0.3,Chicago Citygate,131750,92500,41.75,-87.5
+Chicago,IL,Midwest,0.3,Chicago Citygate,132000,92000,42.0,-88.0
+Chicago,IL,Midwest,0.3,Chicago Citygate,132000,92250,42.0,-87.75
+Chicago,IL,Midwest,0.3,Chicago Citygate,132000,92500,42.0,-87.5
+Chicago,IL,Midwest,0.3,Chicago Citygate,132250,92000,42.25,-88.0
+Chicago,IL,Midwest,0.3,Chicago Citygate,132250,92250,42.25,-87.75
+Chicago,IL,Midwest,0.3,Chicago Citygate,132250,92500,42.25,-87.5
+Boston,MA,NewEngland,0.15,Algonquin Citygate,132000,108750,42.0,-71.25
+Boston,MA,NewEngland,0.15,Algonquin Citygate,132000,109000,42.0,-71.0
+Boston,MA,NewEngland,0.15,Algonquin Citygate,132250,108750,42.25,-71.25
+Boston,MA,NewEngland,0.15,Algonquin Citygate,132250,109000,42.25,-71.0
+Boston,MA,NewEngland,0.15,Algonquin Citygate,132500,108750,42.5,-71.25
+Boston,MA,NewEngland,0.15,Algonquin Citygate,132500,109000,42.5,-71.0
+Pittsburgh,PA,East,0.1,Texas Eastern,130250,99750,40.25,-80.25
+Pittsburgh,PA,East,0.1,Texas Eastern,130250,100000,40.25,-80.0
+Pittsburgh,PA,East,0.1,Texas Eastern,130250,100250,40.25,-79.75
+Pittsburgh,PA,East,0.1,Texas Eastern,130500,99750,40.5,-80.25
+Pittsburgh,PA,East,0.1,Texas Eastern,130500,100000,40.5,-80.0
+Pittsburgh,PA,East,0.1,Texas Eastern,130500,100250,40.5,-79.75
+Pittsburgh,PA,East,0.1,Texas Eastern,130750,99750,40.75,-80.25
+Pittsburgh,PA,East,0.1,Texas Eastern,130750,100000,40.75,-80.0
+Pittsburgh,PA,East,0.1,Texas Eastern,130750,100250,40.75,-79.75
+Seattle,WA,West,0.1,Sumas / Northwest,137250,57500,47.25,-122.5
+Seattle,WA,West,0.1,Sumas / Northwest,137250,57750,47.25,-122.25
+Seattle,WA,West,0.1,Sumas / Northwest,137250,58000,47.25,-122.0
+Seattle,WA,West,0.1,Sumas / Northwest,137500,57500,47.5,-122.5
+Seattle,WA,West,0.1,Sumas / Northwest,137500,57750,47.5,-122.25
+Seattle,WA,West,0.1,Sumas / Northwest,137500,58000,47.5,-122.0
+Seattle,WA,West,0.1,Sumas / Northwest,137750,57500,47.75,-122.5
+Seattle,WA,West,0.1,Sumas / Northwest,137750,57750,47.75,-122.25
+Seattle,WA,West,0.1,Sumas / Northwest,137750,58000,47.75,-122.0
+Houston,TX,South,0.2,Houston Ship Channel,119500,84500,29.5,-95.5
+Houston,TX,South,0.2,Houston Ship Channel,119500,84750,29.5,-95.25
+Houston,TX,South,0.2,Houston Ship Channel,119500,85000,29.5,-95.0
+Houston,TX,South,0.2,Houston Ship Channel,119750,84500,29.75,-95.5
+Houston,TX,South,0.2,Houston Ship Channel,119750,84750,29.75,-95.25
+Houston,TX,South,0.2,Houston Ship Channel,119750,85000,29.75,-95.0
+Houston,TX,South,0.2,Houston Ship Channel,120000,84500,30.0,-95.5
+Houston,TX,South,0.2,Houston Ship Channel,120000,84750,30.0,-95.25
+Houston,TX,South,0.2,Houston Ship Channel,120000,85000,30.0,-95.0
+Los Angeles,CA,West,0.15,SoCal Citygate,123750,61500,33.75,-118.5
+Los Angeles,CA,West,0.15,SoCal Citygate,123750,61750,33.75,-118.25
+Los Angeles,CA,West,0.15,SoCal Citygate,123750,62000,33.75,-118.0
+Los Angeles,CA,West,0.15,SoCal Citygate,124000,61500,34.0,-118.5
+Los Angeles,CA,West,0.15,SoCal Citygate,124000,61750,34.0,-118.25
+Los Angeles,CA,West,0.15,SoCal Citygate,124000,62000,34.0,-118.0
+Los Angeles,CA,West,0.15,SoCal Citygate,124250,61500,34.25,-118.5
+Los Angeles,CA,West,0.15,SoCal Citygate,124250,61750,34.25,-118.25
+Los Angeles,CA,West,0.15,SoCal Citygate,124250,62000,34.25,-118.0
+San Francisco,CA,West,0.1,PG&E Citygate,127500,57500,37.5,-122.5
+San Francisco,CA,West,0.1,PG&E Citygate,127500,57750,37.5,-122.25
+San Francisco,CA,West,0.1,PG&E Citygate,127750,57500,37.75,-122.5
+San Francisco,CA,West,0.1,PG&E Citygate,127750,57750,37.75,-122.25
+San Francisco,CA,West,0.1,PG&E Citygate,128000,57500,38.0,-122.5
+San Francisco,CA,West,0.1,PG&E Citygate,128000,57750,38.0,-122.25
+Washington,DC,East,0.1,Transco Zone 6,128750,102750,38.75,-77.25
+Washington,DC,East,0.1,Transco Zone 6,128750,103000,38.75,-77.0
+Washington,DC,East,0.1,Transco Zone 6,128750,103250,38.75,-76.75
+Washington,DC,East,0.1,Transco Zone 6,129000,102750,39.0,-77.25
+Washington,DC,East,0.1,Transco Zone 6,129000,103000,39.0,-77.0
+Washington,DC,East,0.1,Transco Zone 6,129000,103250,39.0,-76.75
+Washington,DC,East,0.1,Transco Zone 6,129250,102750,39.25,-77.25
+Washington,DC,East,0.1,Transco Zone 6,129250,103000,39.25,-77.0
+Washington,DC,East,0.1,Transco Zone 6,129250,103250,39.25,-76.75
+Philadelphia,PA,East,0.1,Transco Zone 6,129750,104500,39.75,-75.5
+Philadelphia,PA,East,0.1,Transco Zone 6,129750,104750,39.75,-75.25
+Philadelphia,PA,East,0.1,Transco Zone 6,129750,105000,39.75,-75.0
+Philadelphia,PA,East,0.1,Transco Zone 6,130000,104500,40.0,-75.5
+Philadelphia,PA,East,0.1,Transco Zone 6,130000,104750,40.0,-75.25
+Philadelphia,PA,East,0.1,Transco Zone 6,130000,105000,40.0,-75.0
+Philadelphia,PA,East,0.1,Transco Zone 6,130250,104500,40.25,-75.5
+Philadelphia,PA,East,0.1,Transco Zone 6,130250,104750,40.25,-75.25
+Philadelphia,PA,East,0.1,Transco Zone 6,130250,105000,40.25,-75.0
+Atlanta,GA,South,0.1,Transco Zone 4,123500,95250,33.5,-84.75
+Atlanta,GA,South,0.1,Transco Zone 4,123500,95500,33.5,-84.5
+Atlanta,GA,South,0.1,Transco Zone 4,123500,95750,33.5,-84.25
+Atlanta,GA,South,0.1,Transco Zone 4,123750,95250,33.75,-84.75
+Atlanta,GA,South,0.1,Transco Zone 4,123750,95500,33.75,-84.5
+Atlanta,GA,South,0.1,Transco Zone 4,123750,95750,33.75,-84.25
+Atlanta,GA,South,0.1,Transco Zone 4,124000,95250,34.0,-84.75
+Atlanta,GA,South,0.1,Transco Zone 4,124000,95500,34.0,-84.5
+Atlanta,GA,South,0.1,Transco Zone 4,124000,95750,34.0,-84.25
+Miami,FL,South,0.05,FGT Zone 3,115500,99500,25.5,-80.5
+Miami,FL,South,0.05,FGT Zone 3,115500,99750,25.5,-80.25
+Miami,FL,South,0.05,FGT Zone 3,115750,99500,25.75,-80.5
+Miami,FL,South,0.05,FGT Zone 3,115750,99750,25.75,-80.25
+Miami,FL,South,0.05,FGT Zone 3,116000,99500,26.0,-80.5
+Miami,FL,South,0.05,FGT Zone 3,116000,99750,26.0,-80.25
+Dallas,TX,South,0.15,Waha,122500,83000,32.5,-97.0
+Dallas,TX,South,0.15,Waha,122500,83250,32.5,-96.75
+Dallas,TX,South,0.15,Waha,122500,83500,32.5,-96.5
+Dallas,TX,South,0.15,Waha,122750,83000,32.75,-97.0
+Dallas,TX,South,0.15,Waha,122750,83250,32.75,-96.75
+Dallas,TX,South,0.15,Waha,122750,83500,32.75,-96.5
+Dallas,TX,South,0.15,Waha,123000,83000,33.0,-97.0
+Dallas,TX,South,0.15,Waha,123000,83250,33.0,-96.75
+Dallas,TX,South,0.15,Waha,123000,83500,33.0,-96.5
+Phoenix,AZ,West,0.05,El Paso South Mainline,123250,67750,33.25,-112.25
+Phoenix,AZ,West,0.05,El Paso South Mainline,123250,68000,33.25,-112.0
+Phoenix,AZ,West,0.05,El Paso South Mainline,123250,68250,33.25,-111.75
+Phoenix,AZ,West,0.05,El Paso South Mainline,123500,67750,33.5,-112.25
+Phoenix,AZ,West,0.05,El Paso South Mainline,123500,68000,33.5,-112.0
+Phoenix,AZ,West,0.05,El Paso South Mainline,123500,68250,33.5,-111.75
+Phoenix,AZ,West,0.05,El Paso South Mainline,123750,67750,33.75,-112.25
+Phoenix,AZ,West,0.05,El Paso South Mainline,123750,68000,33.75,-112.0
+Phoenix,AZ,West,0.05,El Paso South Mainline,123750,68250,33.75,-111.75
+Denver,CO,West,0.05,CIG,129500,74750,39.5,-105.25
+Denver,CO,West,0.05,CIG,129500,75000,39.5,-105.0
+Denver,CO,West,0.05,CIG,129500,75250,39.5,-104.75
+Denver,CO,West,0.05,CIG,129750,74750,39.75,-105.25
+Denver,CO,West,0.05,CIG,129750,75000,39.75,-105.0
+Denver,CO,West,0.05,CIG,129750,75250,39.75,-104.75
+Denver,CO,West,0.05,CIG,130000,74750,40.0,-105.25
+Denver,CO,West,0.05,CIG,130000,75000,40.0,-105.0
+Denver,CO,West,0.05,CIG,130000,75250,40.0,-104.75
+Detroit,MI,Midwest,0.1,MichCon,132000,96750,42.0,-83.25
+Detroit,MI,Midwest,0.1,MichCon,132000,97000,42.0,-83.0
+Detroit,MI,Midwest,0.1,MichCon,132000,97250,42.0,-82.75
+Detroit,MI,Midwest,0.1,MichCon,132250,96750,42.25,-83.25
+Detroit,MI,Midwest,0.1,MichCon,132250,97000,42.25,-83.0
+Detroit,MI,Midwest,0.1,MichCon,132250,97250,42.25,-82.75
+Detroit,MI,Midwest,0.1,MichCon,132500,96750,42.5,-83.25
+Detroit,MI,Midwest,0.1,MichCon,132500,97000,42.5,-83.0
+Detroit,MI,Midwest,0.1,MichCon,132500,97250,42.5,-82.75
+Minneapolis,MN,Midwest,0.1,Northern Natural,134750,86500,44.75,-93.5
+Minneapolis,MN,Midwest,0.1,Northern Natural,134750,86750,44.75,-93.25
+Minneapolis,MN,Midwest,0.1,Northern Natural,134750,87000,44.75,-93.0
+Minneapolis,MN,Midwest,0.1,Northern Natural,135000,86500,45.0,-93.5
+Minneapolis,MN,Midwest,0.1,Northern Natural,135000,86750,45.0,-93.25
+Minneapolis,MN,Midwest,0.1,Northern Natural,135000,87000,45.0,-93.0
+Minneapolis,MN,Midwest,0.1,Northern Natural,135250,86500,45.25,-93.5
+Minneapolis,MN,Midwest,0.1,Northern Natural,135250,86750,45.25,-93.25
+Minneapolis,MN,Midwest,0.1,Northern Natural,135250,87000,45.25,-93.0
+San Diego,CA,West,0.05,SoCal Citygate,122500,62500,32.5,-117.5
+San Diego,CA,West,0.05,SoCal Citygate,122500,62750,32.5,-117.25
+San Diego,CA,West,0.05,SoCal Citygate,122500,63000,32.5,-117.0
+San Diego,CA,West,0.05,SoCal Citygate,122750,62500,32.75,-117.5
+San Diego,CA,West,0.05,SoCal Citygate,122750,62750,32.75,-117.25
+San Diego,CA,West,0.05,SoCal Citygate,122750,63000,32.75,-117.0
+San Diego,CA,West,0.05,SoCal Citygate,123000,62500,33.0,-117.5
+San Diego,CA,West,0.05,SoCal Citygate,123000,62750,33.0,-117.25
+San Diego,CA,West,0.05,SoCal Citygate,123000,63000,33.0,-117.0
+Tampa,FL,South,0.05,FGT Zone 3,117750,97250,27.75,-82.75
+Tampa,FL,South,0.05,FGT Zone 3,117750,97500,27.75,-82.5
+Tampa,FL,South,0.05,FGT Zone 3,117750,97750,27.75,-82.25
+Tampa,FL,South,0.05,FGT Zone 3,118000,97250,28.0,-82.75
+Tampa,FL,South,0.05,FGT Zone 3,118000,97500,28.0,-82.5
+Tampa,FL,South,0.05,FGT Zone 3,118000,97750,28.0,-82.25
+Tampa,FL,South,0.05,FGT Zone 3,118250,97250,28.25,-82.75
+Tampa,FL,South,0.05,FGT Zone 3,118250,97500,28.25,-82.5
+Tampa,FL,South,0.05,FGT Zone 3,118250,97750,28.25,-82.25
+Baltimore,MD,East,0.05,Transco Zone 6,129000,103250,39.0,-76.75
+Baltimore,MD,East,0.05,Transco Zone 6,129000,103500,39.0,-76.5
+Baltimore,MD,East,0.05,Transco Zone 6,129000,103750,39.0,-76.25
+Baltimore,MD,East,0.05,Transco Zone 6,129250,103250,39.25,-76.75
+Baltimore,MD,East,0.05,Transco Zone 6,129250,103500,39.25,-76.5
+Baltimore,MD,East,0.05,Transco Zone 6,129250,103750,39.25,-76.25
+Baltimore,MD,East,0.05,Transco Zone 6,129500,103250,39.5,-76.75
+Baltimore,MD,East,0.05,Transco Zone 6,129500,103500,39.5,-76.5
+Baltimore,MD,East,0.05,Transco Zone 6,129500,103750,39.5,-76.25
+St. Louis,MO,Midwest,0.05,Panhandle,128500,89500,38.5,-90.5
+St. Louis,MO,Midwest,0.05,Panhandle,128500,89750,38.5,-90.25
+St. Louis,MO,Midwest,0.05,Panhandle,128500,90000,38.5,-90.0
+St. Louis,MO,Midwest,0.05,Panhandle,128750,89500,38.75,-90.5
+St. Louis,MO,Midwest,0.05,Panhandle,128750,89750,38.75,-90.25
+St. Louis,MO,Midwest,0.05,Panhandle,128750,90000,38.75,-90.0
+St. Louis,MO,Midwest,0.05,Panhandle,129000,89500,39.0,-90.5
+St. Louis,MO,Midwest,0.05,Panhandle,129000,89750,39.0,-90.25
+St. Louis,MO,Midwest,0.05,Panhandle,129000,90000,39.0,-90.0
+Charlotte,NC,South,0.05,Transco Zone 5,125000,99000,35.0,-81.0
+Charlotte,NC,South,0.05,Transco Zone 5,125000,99250,35.0,-80.75
+Charlotte,NC,South,0.05,Transco Zone 5,125000,99500,35.0,-80.5
+Charlotte,NC,South,0.05,Transco Zone 5,125250,99000,35.25,-81.0
+Charlotte,NC,South,0.05,Transco Zone 5,125250,99250,35.25,-80.75
+Charlotte,NC,South,0.05,Transco Zone 5,125250,99500,35.25,-80.5
+Charlotte,NC,South,0.05,Transco Zone 5,125500,99000,35.5,-81.0
+Charlotte,NC,South,0.05,Transco Zone 5,125500,99250,35.5,-80.75
+Charlotte,NC,South,0.05,Transco Zone 5,125500,99500,35.5,-80.5
+Orlando,FL,South,0.05,FGT Zone 3,118250,98250,28.25,-81.75
+Orlando,FL,South,0.05,FGT Zone 3,118250,98500,28.25,-81.5
+Orlando,FL,South,0.05,FGT Zone 3,118250,98750,28.25,-81.25
+Orlando,FL,South,0.05,FGT Zone 3,118500,98250,28.5,-81.75
+Orlando,FL,South,0.05,FGT Zone 3,118500,98500,28.5,-81.5
+Orlando,FL,South,0.05,FGT Zone 3,118500,98750,28.5,-81.25
+Orlando,FL,South,0.05,FGT Zone 3,118750,98250,28.75,-81.75
+Orlando,FL,South,0.05,FGT Zone 3,118750,98500,28.75,-81.5
+Orlando,FL,South,0.05,FGT Zone 3,118750,98750,28.75,-81.25
+San Antonio,TX,South,0.05,Houston Ship Channel,119250,81250,29.25,-98.75
+San Antonio,TX,South,0.05,Houston Ship Channel,119250,81500,29.25,-98.5
+San Antonio,TX,South,0.05,Houston Ship Channel,119250,81750,29.25,-98.25
+San Antonio,TX,South,0.05,Houston Ship Channel,119500,81250,29.5,-98.75
+San Antonio,TX,South,0.05,Houston Ship Channel,119500,81500,29.5,-98.5
+San Antonio,TX,South,0.05,Houston Ship Channel,119500,81750,29.5,-98.25
+San Antonio,TX,South,0.05,Houston Ship Channel,119750,81250,29.75,-98.75
+San Antonio,TX,South,0.05,Houston Ship Channel,119750,81500,29.75,-98.5
+San Antonio,TX,South,0.05,Houston Ship Channel,119750,81750,29.75,-98.25
+Portland,OR,West,0.05,Sumas / Northwest,135250,57000,45.25,-123.0
+Portland,OR,West,0.05,Sumas / Northwest,135250,57250,45.25,-122.75
+Portland,OR,West,0.05,Sumas / Northwest,135250,57500,45.25,-122.5
+Portland,OR,West,0.05,Sumas / Northwest,135500,57000,45.5,-123.0
+Portland,OR,West,0.05,Sumas / Northwest,135500,57250,45.5,-122.75
+Portland,OR,West,0.05,Sumas / Northwest,135500,57500,45.5,-122.5
+Portland,OR,West,0.05,Sumas / Northwest,135750,57000,45.75,-123.0
+Portland,OR,West,0.05,Sumas / Northwest,135750,57250,45.75,-122.75
+Portland,OR,West,0.05,Sumas / Northwest,135750,57500,45.75,-122.5

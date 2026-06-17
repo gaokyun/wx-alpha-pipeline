@@ -43,10 +43,10 @@ DELTA_TABLES = [
 )
 def delta_maintenance_pipeline():
 
-    @task(task_id='enforce_3_day_retention')
+    @task(task_id='enforce_7_day_retention')
     def clean_delta_tables():
-        # Calculate 3 days ago
-        cutoff_date = pendulum.now('UTC').subtract(days=3)
+        # Calculate 7 days ago
+        cutoff_date = pendulum.now('UTC').subtract(days=7)
         
         # Use the YYYY-MM-DD format to match your `forecast_date` partition column
         cutoff_string = cutoff_date.format('YYYY-MM-DD')

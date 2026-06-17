@@ -1,7 +1,10 @@
 {{ config(
-    materialized='table',
+    materialized='mysql_view',
     alias='fct_spread_forecast'
 ) }}
+
+-- depends_on: {{ ref('fct_dmh_aifs_spread') }}
+-- depends_on: {{ ref('fct_dmh_ifs_spread') }}
 
 SELECT surrogate_merge_key,
         weather_model,
@@ -17,7 +20,7 @@ SELECT surrogate_merge_key,
         temp_spread_celsius,
         geopotential_height_spread_m,
         dbt_updated_at
-FROM {{ ref('fct_dmh_aifs_spread') }}
+FROM fct_aifs_spread
 UNION ALL
 SELECT surrogate_merge_key,
         weather_model,
@@ -33,4 +36,4 @@ SELECT surrogate_merge_key,
         temp_spread_celsius,
         geopotential_height_spread_m,
         dbt_updated_at
-FROM {{ ref('fct_dmh_ifs_spread') }}
+FROM fct_ifs_spread

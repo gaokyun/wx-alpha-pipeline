@@ -317,7 +317,7 @@ def upsert_weather_data(pa_table, pk_cols, delta_table_path, storage_options, ta
     try:
         logger.info(f"🧹 Vacuuming tombstoned files...")
         dt_clean = DeltaTable(delta_table_path, storage_options=storage_options)
-        deleted_files = dt_clean.vacuum(retention_hours=0, enforce_retention_duration=False, dry_run=False)
+        deleted_files = dt_clean.vacuum(retention_hours=2, enforce_retention_duration=False, dry_run=False)
         logger.info(f"✨ Storage cleaned. Physically deleted: {len(deleted_files)} files.")
     except Exception as e:
         logger.warning(f"⚠️ Vacuum failed (non-critical): {e}")

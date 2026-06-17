@@ -3,6 +3,9 @@
         materialized='incremental',
         partition_by=['cycle_date', 'cycle_hour'],
         unique_key=['cycle_date', 'cycle_hour', 'forecast_step_hours', 'lat_i', 'lon_i', 'pressure_level_hpa'],
+        indexes=[
+            {'columns': ['cycle_date', 'cycle_hour', 'forecast_step_hours', 'lat_i', 'lon_i', 'pressure_level_hpa'], 'unique': True}
+        ],
         tags=["atomic_marts"]
     )
 }}
@@ -31,7 +34,7 @@ WITH silver_data AS (
     AND (cycle_date + (cycle_hour * INTERVAL '1 hour')) > (
         SELECT MAX(cycle_date + (cycle_hour * INTERVAL '1 hour')) 
         FROM {{ this }}
-        WHERE cycle_date >= CURRENT_DATE - INTERVAL 1 DAY
+        WHERE cycle_date >= CURRENT_DATE - INTERVAL 4 DAY
     )
 {% endif %}
 )

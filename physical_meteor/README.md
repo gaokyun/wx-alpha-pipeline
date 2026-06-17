@@ -1,4 +1,4 @@
-Welcome to your new dbt project!
+Welcome to Meteorologic weather data dbt project!
 
 ### Using the starter project
 

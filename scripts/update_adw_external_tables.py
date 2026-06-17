@@ -9,7 +9,7 @@ def main():
         load_dotenv(dotenv_path="/opt/airflow/.env")
         
     user = os.getenv("ORACLE_USER", "PHYSICAL_METEOR_RAW")
-    password = os.getenv("ORACLE_PASSWORD", "***REMOVED***")
+    password = os.getenv("ORACLE_PASSWORD")
     host = os.getenv("ORACLE_HOST", "adb.us-ashburn-1.oraclecloud.com")
     service = os.getenv("ORACLE_SERVICE", "g6fd1d6c71405c0_meteor0ykg0aidw_high.adb.oraclecloud.com")
     

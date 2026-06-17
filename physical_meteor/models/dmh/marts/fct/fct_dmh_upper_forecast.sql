@@ -1,7 +1,11 @@
 {{ config(
-    materialized='table',
+    materialized='mysql_view',
     alias='fct_upper_forecast'
 ) }}
+
+-- depends_on: {{ ref('fct_dmh_gfs_upper') }}
+-- depends_on: {{ ref('fct_dmh_aifs_upper') }}
+-- depends_on: {{ ref('fct_dmh_ifs_upper') }}
 
 SELECT
     surrogate_merge_key,
@@ -20,7 +24,7 @@ SELECT
     u_wind_m_s,
     v_wind_m_s,
     dbt_updated_at
-FROM {{ ref('fct_dmh_gfs_upper') }}
+FROM fct_gfs_upper
 UNION ALL
 SELECT
     surrogate_merge_key,
@@ -39,7 +43,7 @@ SELECT
     u_wind_m_s,
     v_wind_m_s,
     dbt_updated_at
-FROM {{ ref('fct_dmh_aifs_upper') }}
+FROM fct_aifs_upper
 UNION ALL
 SELECT
     surrogate_merge_key,
@@ -58,4 +62,4 @@ SELECT
     u_wind_m_s,
     v_wind_m_s,
     dbt_updated_at
-FROM {{ ref('fct_dmh_ifs_upper') }}
+FROM fct_ifs_upper

@@ -7,8 +7,8 @@ def main():
     load_dotenv()
     
     # Credentials from config or environment fallback
-    access_key = os.getenv('OCI_OBJECT_STORAGE_ACCESS_KEY', '***REMOVED***')
-    secret_key = os.getenv('OCI_OBJECT_STORAGE_SECRET_KEY', '***REMOVED***')
+    access_key = os.getenv('OCI_OBJECT_STORAGE_ACCESS_KEY')
+    secret_key = os.getenv('OCI_OBJECT_STORAGE_SECRET_KEY')
     endpoint_url = os.getenv('OCI_API_ENDPOINT', 'https://idt2nq7cpbfu.compat.objectstorage.us-ashburn-1.oraclecloud.com')
     bucket_name = 'oci-s3-ykg-storage'
     prefix = 'weather_data/delta_lake/ecmwf_raw/at_aifs_upper/'

@@ -5,7 +5,7 @@
 WITH cycle_dates AS (
     SELECT TRUNC(SYSDATE) - (LEVEL - 1) AS cycle_date
     FROM DUAL
-    CONNECT BY LEVEL <= {% if is_incremental() %} 2 {% else %} 4 {% endif %}
+    CONNECT BY LEVEL <= 1
 ),
 cycle_hours AS (
     SELECT column_value AS cycle_hour FROM TABLE(sys.odcinumberlist(0, 6, 12, 18))
