@@ -60,3 +60,6 @@ config/databricks*secret*.sh
 # Ignore Jupyter internals
 .jupyter/
 .ipynb_checkpoints/
+
+# Antigravity CLI
+.antigravitycli/
