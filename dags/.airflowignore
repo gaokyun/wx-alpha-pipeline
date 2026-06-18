@@ -1,0 +1,5 @@
+# Ignore helper directories and scripts from being parsed as DAGs
+utils/.*
+test_oracle_conn\.py
+view_v1_metadata\.py
+check_version_hint\.py

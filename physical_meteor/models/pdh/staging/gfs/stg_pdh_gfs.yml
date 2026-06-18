@@ -1,0 +1,254 @@
+version: 2
+models:
+- name: stg_pdh_gfs_upper
+  description: Staging model for GFS Upper air meteorological data. Includes casted
+    timestamps, converted temperatures, and shifted/scaled coordinate indices.
+  columns:
+  - name: cycle_date
+    description: The date of the forecast run cycle (e.g. 2026-05-25)
+    tests:
+    - not_null
+    tags: &id001
+    - temporal
+    - date
+  - name: cycle_hour
+    description: The hour of the cycle run (e.g., 0, 6, 12, or 18)
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+    tags: &id002
+    - temporal
+    - hour
+  - name: forecast_step_hours
+    description: 'Lead time in hours (forecast steps: 192, 240, 288, 360)'
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 192
+        - 240
+        - 288
+        - 360
+    tags: &id003
+    - temporal
+    - forecast
+  - name: valid_date
+    description: The date when the forecast is valid
+    tests:
+    - not_null
+    tags: &id004
+    - temporal
+    - date
+  - name: valid_hour
+    description: The hour of the day (UTC) when the forecast is valid
+    tests:
+    - not_null
+    tags: &id005
+    - temporal
+    - hour
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90)
+    tests:
+    - not_null
+    tags: &id006
+    - spatial
+    - coordinate
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360)
+    tests:
+    - not_null
+    tags: &id007
+    - spatial
+    - coordinate
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tests:
+    - not_null
+    tags: &id008
+    - spatial
+    - coordinate
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tests:
+    - not_null
+    tags: &id009
+    - spatial
+    - coordinate
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g., 200, 500, 850)
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - pressure
+  - name: geopotential_height_m
+    description: Geopotential height of pressure level in meters
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - height
+  - name: temp_kelvin
+    description: Temperature in Kelvin
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - temperature
+  - name: temp_celsius
+    description: Calculated temperature in Celsius (Kelvin - 273.15)
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - temperature
+  - name: u_wind_m_s
+    description: Eastward wind component (U-wind) in meters per second
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - wind
+  - name: v_wind_m_s
+    description: Northward wind component (V-wind) in meters per second
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - wind
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations
+    tags: &id010
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_pdh_gfs_surface
+  description: Staging model for GFS Surface meteorological data. Includes surface
+    temp, dewpoint, msl pressure, and total precipitation.
+  columns:
+  - name: cycle_date
+    description: The date of the forecast run cycle
+    tests:
+    - not_null
+    tags: *id001
+  - name: cycle_hour
+    description: The hour of the cycle run (0, 6, 12, or 18)
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+    tags: *id002
+  - name: forecast_step_hours
+    description: 'Lead time in hours (forecast steps: 192, 240, 288, 360)'
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 192
+        - 240
+        - 288
+        - 360
+    tags: *id003
+  - name: valid_date
+    description: The date when the forecast is valid
+    tests:
+    - not_null
+    tags: *id004
+  - name: valid_hour
+    description: The hour of the day (UTC) when the forecast is valid
+    tests:
+    - not_null
+    tags: *id005
+  - name: lat
+    description: Physical latitude value in degrees
+    tests:
+    - not_null
+    tags: *id006
+  - name: lon
+    description: Physical longitude value in degrees
+    tests:
+    - not_null
+    tags: *id007
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tests:
+    - not_null
+    tags: *id008
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tests:
+    - not_null
+    tags: *id009
+  - name: temp_2m_kelvin
+    description: Surface temperature at 2 meters in Kelvin
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - temperature
+  - name: temp_2m_celsius
+    description: Surface temperature at 2 meters in Celsius
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - temperature
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters in Kelvin
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - dewpoint
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters in Celsius
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - dewpoint
+  - name: msl_pressure_hpa
+    description: Mean sea level pressure converted to hPa (Pascals / 100.0)
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - pressure
+  - name: total_precipitation_m
+    description: Accumulated total precipitation in meters
+    tests:
+    - not_null
+    tags:
+    - meteorological
+    - precipitation
+  - name: height_above_ground_metadata
+    description: Metadata description of height above ground
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata description of surface type
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations
+    tags: *id010
+    tests:
+    - unique
+    - not_null

@@ -1,0 +1,190 @@
+version: 2
+seeds:
+- name: ref_meteorological_anchors
+  description: Geographical anchor reference points used for teleconnection pattern
+    analysis (e.g. NAO index).
+  columns:
+  - name: anchor_id
+    description: Unique ICAO-style anchor point identifier (e.g., NAO_N for Iceland
+      node, NAO_S for Azores node).
+    tags:
+    - metadata
+    - anchor
+    tests:
+    - unique
+    - not_null
+  - name: latitude
+    description: Geographical latitude of the anchor point in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: longitude
+    description: Geographical longitude of the anchor point in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: teleconnection
+    description: Acronym code representing the associated teleconnection index (e.g.,
+      NAO for North Atlantic Oscillation).
+    tags:
+    - meteorological
+    - pattern
+  - name: description
+    description: Human-readable description explaining the role and location of the
+      teleconnection anchor node.
+    tags:
+    - metadata
+    - description
+- name: ref_physical_thresholds
+  description: Predefined meteorological limits used to detect anomalous air masses
+    or extreme weather transitions (e.g., freeze lines).
+  columns:
+  - name: threshold_id
+    description: Unique string key for the physical threshold rule.
+    tags:
+    - metadata
+    - threshold
+    tests:
+    - unique
+    - not_null
+  - name: variable_id
+    description: Acronym representing the meteorological variable (e.g., t for temperature,
+      gh for geopotential height).
+    tags:
+    - meteorological
+    - variable
+    tests:
+    - unique
+    - not_null
+  - name: level_mb
+    description: Vertical atmospheric pressure level in millibars (hPa) where the
+      threshold applies.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: threshold_value
+    description: The numerical value of the physical limit.
+    tags:
+    - meteorological
+    - value
+    tests:
+    - not_null
+  - name: unit
+    description: The unit of measurement (e.g., C for Celsius, dam for decameters).
+    tags:
+    - meteorological
+    - unit
+  - name: logic_type
+    description: Operator logic type used to evaluate boundary crossings (e.g., MAX,
+      MIN).
+    tags:
+    - metadata
+    - logic
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - GT
+        - LT
+        - GTE
+        - LTE
+        - EQ
+  - name: description
+    description: Detailed description of the physical meaning and significance of
+      the boundary limit.
+    tags:
+    - metadata
+    - description
+- name: ref_weather_model_variables
+  description: Technical parameter mapping for weather forecast grib variables, indicating
+    atmospheric level and physical significance.
+  columns:
+  - name: variable_id
+    description: Meteorological short variable identifier used in queries and transformations.
+    tags:
+    - meteorological
+    - variable
+    tests:
+    - unique
+    - not_null
+  - name: level_mb
+    description: Target vertical atmospheric pressure level in millibars (hPa).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: grib_params
+    description: Corresponding GRIB standard parameter name or numeric identifier
+      codes.
+    tags:
+    - metadata
+    - grib
+  - name: pack_type
+    description: Compression packing type used in storing raw gridded variables (e.g.,
+      BASIC).
+    tags:
+    - metadata
+    - packing
+  - name: physical_significance
+    description: Meteorological explanation highlighting the strategic value of the
+      variable to natural gas traders.
+    tags:
+    - metadata
+    - description
+- name: ref_weather_station
+  description: Register of key municipal weather stations situated at major US natural
+    gas demand centers.
+  columns:
+  - name: station_id
+    description: Standard 4-letter ICAO weather station identifier (e.g., KORD, KNYC).
+    tags:
+    - metadata
+    - station
+    tests:
+    - unique
+    - not_null
+  - name: city_name
+    description: Name of the major metropolitan area served by the weather station.
+    tags:
+    - spatial
+    - city
+    tests:
+    - not_null
+  - name: state
+    description: Two-letter US state code.
+    tags:
+    - spatial
+    - state
+    tests:
+    - not_null
+  - name: region
+    description: Macro-demand region representing regional grid consumption patterns
+      (e.g., Midwest, East).
+    tags:
+    - spatial
+    - region
+    tests:
+    - not_null
+  - name: market_weight
+    description: Proportional population or gas consumption weighting factor relative
+      to national aggregates.
+    tags:
+    - metadata
+    - weight
+    tests:
+    - not_null
+  - name: associated_hub
+    description: Physical natural gas trading hub and pricing point linked to the
+      station (e.g., Chicago Citygate).
+    tags:
+    - metadata
+    - trading_hub
+    tests:
+    - not_null

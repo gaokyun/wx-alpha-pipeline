@@ -1,0 +1,589 @@
+version: 2
+models:
+- name: stg_ecmwf_aifs_spread
+  description: Staging model for ECMWF AIFS ensemble spread data containing standard
+    deviation measures.
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags: &id001
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags: &id002
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags: &id003
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags: &id004
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags: &id005
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags: &id006
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags: &id007
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: Transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals.
+    tags: &id008
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: Transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals.
+    tags: &id009
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags: &id011
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags: &id012
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags: &id013
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags: &id014
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags: &id010
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_ecmwf_aifs_surface
+  description: Staging model for ECMWF AIFS surface-level weather parameters.
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags: *id001
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags: *id002
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags: *id003
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags: *id004
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags: *id005
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags: *id006
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags: *id007
+    tests:
+    - not_null
+  - name: lat_i
+    description: Transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id008
+    tests:
+    - not_null
+  - name: lon_i
+    description: Transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id009
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags: &id015
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags: &id016
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags: &id017
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags: &id018
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags: &id019
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags: &id020
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags: &id021
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags: &id022
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags: *id010
+    tests:
+    - unique
+    - not_null
+- name: stg_ecmwf_aifs_upper
+  description: Staging model for ECMWF AIFS upper air meteorological data.
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags: *id001
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags: *id002
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags: *id003
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags: *id004
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags: *id005
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags: *id006
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags: *id007
+    tests:
+    - not_null
+  - name: lat_i
+    description: Transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id008
+    tests:
+    - not_null
+  - name: lon_i
+    description: Transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id009
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags: *id011
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags: &id023
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags: &id024
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags: &id025
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags: &id026
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags: &id027
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags: *id010
+    tests:
+    - unique
+    - not_null
+- name: stg_ecmwf_ifs_spread
+  description: Staging model for ECMWF IFS ensemble spread data.
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags: *id001
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags: *id002
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags: *id003
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags: *id004
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags: *id005
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags: *id006
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags: *id007
+    tests:
+    - not_null
+  - name: lat_i
+    description: Transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id008
+    tests:
+    - not_null
+  - name: lon_i
+    description: Transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id009
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags: *id011
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags: *id012
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags: *id013
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags: *id014
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags: *id010
+    tests:
+    - unique
+    - not_null
+- name: stg_ecmwf_ifs_surface
+  description: Staging model for ECMWF IFS surface-level weather parameters.
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags: *id001
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags: *id002
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags: *id003
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags: *id004
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags: *id005
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags: *id006
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags: *id007
+    tests:
+    - not_null
+  - name: lat_i
+    description: Transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id008
+    tests:
+    - not_null
+  - name: lon_i
+    description: Transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id009
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags: *id015
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags: *id016
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags: *id017
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags: *id018
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags: *id019
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags: *id020
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags: *id021
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags: *id022
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags: *id010
+    tests:
+    - unique
+    - not_null
+- name: stg_ecmwf_ifs_upper
+  description: Staging model for ECMWF IFS upper air meteorological data.
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags: *id001
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags: *id002
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags: *id003
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags: *id004
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags: *id005
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags: *id006
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags: *id007
+    tests:
+    - not_null
+  - name: lat_i
+    description: Transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id008
+    tests:
+    - not_null
+  - name: lon_i
+    description: Transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals.
+    tags: *id009
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags: *id011
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags: *id023
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags: *id024
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags: *id025
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags: *id026
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags: *id027
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags: *id010
+    tests:
+    - unique
+    - not_null

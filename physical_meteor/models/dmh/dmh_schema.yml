@@ -1,0 +1,2539 @@
+version: 2
+models:
+- name: stg_dmh_gfs_upper
+  description: Staging model preparing raw weather variables for the model gfs_upper
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_gfs_surface
+  description: Staging model preparing raw weather variables for the model gfs_surface
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_aifs_upper
+  description: Staging model preparing raw weather variables for the model aifs_upper
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_aifs_surface
+  description: Staging model preparing raw weather variables for the model aifs_surface
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_aifs_spread
+  description: Staging model preparing raw weather variables for the model aifs_spread
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_ifs_upper
+  description: Staging model preparing raw weather variables for the model ifs_upper
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_ifs_surface
+  description: Staging model preparing raw weather variables for the model ifs_surface
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: stg_dmh_ifs_spread
+  description: Staging model preparing raw weather variables for the model ifs_spread
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+- name: dim_dmh_locations
+  description: Locations dimension mapping coordinates to fixed-point indices in DuckDB-MySQL
+    Heatwave (DMH).
+  columns:
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees.
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees.
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+- name: dim_dmh_times
+  description: Time dimension map defining cycle run date and hour boundaries in DuckDB-MySQL
+    Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: dbt_updated_at
+    description: The timestamp indicating when this row was updated by dbt.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_gfs_upper
+  description: Fact model storing incremental metrics for the gfs_upper run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_gfs_surface
+  description: Fact model storing incremental metrics for the gfs_surface run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 6
+        - 12
+        - 18
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_aifs_upper
+  description: Fact model storing incremental metrics for the aifs_upper run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_aifs_surface
+  description: Fact model storing incremental metrics for the aifs_surface run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_aifs_spread
+  description: Fact model storing incremental metrics for the aifs_spread run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_ifs_upper
+  description: Fact model storing incremental metrics for the ifs_upper run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_ifs_surface
+  description: Fact model storing incremental metrics for the ifs_surface run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_ifs_spread
+  description: Fact model storing incremental metrics for the ifs_spread run cycle
+    in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_upper_forecast
+  description: Unified comparison fact model aligning GFS, IFS, and AIFS for upper_forecast
+    parameters side-by-side in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa (e.g. 500, 850).
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: geopotential_height_m
+    description: Geopotential height of the pressure level in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: temp_kelvin
+    description: Air temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_celsius
+    description: Air temperature converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: u_wind_m_s
+    description: Zonal wind speed component (eastward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: v_wind_m_s
+    description: Meridional wind speed component (northward wind velocity) in m/s.
+    tags:
+    - meteorological
+    - wind
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: weather_model
+    description: The weather model source identifier (e.g. gfs, ifs, aifs).
+    tags:
+    - metadata
+    - weather_model
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - GFS
+        - IFS
+        - AIFS
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_surface_forecast
+  description: Unified comparison fact model aligning GFS, IFS, and AIFS for surface_forecast
+    parameters side-by-side in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: temp_2m_kelvin
+    description: Air temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_2m_celsius
+    description: Air temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: dewpoint_2m_kelvin
+    description: Dewpoint temperature at 2 meters above ground in Kelvin.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: dewpoint_2m_celsius
+    description: Dewpoint temperature at 2 meters above ground converted to Celsius.
+    tags:
+    - meteorological
+    - dewpoint
+    tests:
+    - not_null
+  - name: msl_pressure_hpa
+    description: Mean sea level atmospheric pressure in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: total_precipitation_m
+    description: Total accumulated precipitation in meters.
+    tags:
+    - meteorological
+    - precipitation
+    tests:
+    - not_null
+  - name: height_above_ground_metadata
+    description: Metadata parameter indicating elevation above ground.
+    tags:
+    - metadata
+    - spatial
+  - name: surface_type_metadata
+    description: Metadata parameter indicating surface type classification.
+    tags:
+    - metadata
+    - spatial
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: weather_model
+    description: The weather model source identifier (e.g. gfs, ifs, aifs).
+    tags:
+    - metadata
+    - weather_model
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - GFS
+        - IFS
+        - AIFS
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null
+- name: fct_dmh_spread_forecast
+  description: Unified comparison fact model aligning GFS, IFS, and AIFS for spread_forecast
+    parameters side-by-side in DuckDB-MySQL Heatwave (DMH).
+  columns:
+  - name: cycle_date
+    description: The date when the weather model run cycle was initialized.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: cycle_hour
+    description: The cycle run hour (UTC, e.g., 0, 6, 12, or 18).
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - 0
+        - 12
+  - name: forecast_step_hours
+    description: Forecast lead time hours from the model initialization.
+    tags:
+    - temporal
+    - forecast
+    tests:
+    - not_null
+  - name: valid_date
+    description: The date when the forecast is valid.
+    tags:
+    - temporal
+    - date
+    tests:
+    - not_null
+  - name: valid_hour
+    description: The hour (UTC) when the forecast is valid.
+    tags:
+    - temporal
+    - hour
+    tests:
+    - not_null
+  - name: lat
+    description: Physical latitude value in degrees (-90 to 90).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon
+    description: Physical longitude value in degrees (-180 to 360).
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lat_i
+    description: transform latitude with Shift by 90/360 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: lon_i
+    description: transform longitude with Shift by 180 to ensure positive values,
+      then scale to remove decimals
+    tags:
+    - spatial
+    - coordinate
+    tests:
+    - not_null
+  - name: pressure_level_hpa
+    description: Isobaric pressure level in hPa.
+    tags:
+    - meteorological
+    - pressure
+    tests:
+    - not_null
+  - name: temp_spread_kelvin
+    description: Ensemble spread (standard deviation) for temperature in Kelvin.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: temp_spread_celsius
+    description: Ensemble spread (standard deviation) for temperature in Celsius.
+    tags:
+    - meteorological
+    - temperature
+    tests:
+    - not_null
+  - name: geopotential_height_spread_m
+    description: Ensemble spread (standard deviation) for geopotential height in meters.
+    tags:
+    - meteorological
+    - height
+    tests:
+    - not_null
+  - name: surrogate_merge_key
+    description: Primary key placeholder for upsert operations.
+    tags:
+    - key
+    - metadata
+    tests:
+    - unique
+    - not_null
+  - name: weather_model
+    description: The weather model source identifier (e.g. gfs, ifs, aifs).
+    tags:
+    - metadata
+    - weather_model
+    tests:
+    - not_null
+    - accepted_values:
+        values:
+        - GFS
+        - IFS
+        - AIFS
+  - name: dbt_updated_at
+    description: Standard update timestamp.
+    tags:
+    - temporal
+    - metadata
+    tests:
+    - not_null

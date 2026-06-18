@@ -1,0 +1,164 @@
+FROM postgres:16
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-16-oracle-fdw \
+    postgresql-server-dev-16 \
+    build-essential \
+    git \
+    libssl-dev \
+    ca-certificates \
+    wget \
+    unzip \
+    python3 \
+    libzstd-dev \
+    liblz4-dev \
+    libcurl4-openssl-dev \
+    libicu-dev \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and compile Citus from source for ARM64/Apple Silicon compatibility
+RUN git clone --depth 1 -b v12.1.0 https://github.com/citusdata/citus.git /tmp/citus \
+    && cd /tmp/citus \
+    && ./configure \
+    && make \
+    && make install \
+    && rm -rf /tmp/citus
+
+# Clone duckdb_fdw from source
+RUN git clone https://github.com/alitrack/duckdb_fdw.git /tmp/duckdb_fdw
+
+# Write the patch script
+RUN cat <<'EOF' > /tmp/duckdb_fdw/patch_fdw.py
+import os
+
+filepath = "/tmp/duckdb_fdw/duckdb_fdw.c"
+if not os.path.exists(filepath):
+    print("Error: duckdb_fdw.c not found")
+    exit(1)
+
+with open(filepath, "r") as f:
+    content = f.read()
+
+old_1 = """                 create_foreignscan_path(root, joinrel,
+                                          joinrel->reltarget,
+                                          rows,
+                                          startup_cost,
+                                          total_cost,
+                                          NIL,
+                                          joinrel->lateral_relids,
+                                          NULL,
+                                          NIL,
+                                          NIL));"""
+
+new_1 = """#if PG_VERSION_NUM >= 170000
+                 create_foreignscan_path(root, joinrel,
+                                          joinrel->reltarget,
+                                          rows,
+                                          startup_cost,
+                                          total_cost,
+                                          NIL,
+                                          joinrel->lateral_relids,
+                                          NULL,
+                                          NIL,
+                                          NIL));
+#else
+                 create_foreignscan_path(root, joinrel,
+                                          joinrel->reltarget,
+                                          rows,
+                                          startup_cost,
+                                          total_cost,
+                                          NIL,
+                                          joinrel->lateral_relids,
+                                          NULL,
+                                          NIL));
+#endif"""
+
+old_2 = """             create_foreignscan_path(root, baserel,
+                                     baserel->reltarget,
+                                     rows,
+                                     startup_cost,
+                                     total_cost,
+                                     NIL,   /* no pathkeys */
+                                     NULL,  /* no required_outer */
+                                     NULL,  /* no fdw_outerpath */
+                                     NIL,   /* no fdw_restrictinfo */
+                                     NIL)); /* no fdw_private */"""
+
+new_2 = """#if PG_VERSION_NUM >= 170000
+             create_foreignscan_path(root, baserel,
+                                     baserel->reltarget,
+                                     rows,
+                                     startup_cost,
+                                     total_cost,
+                                     NIL,   /* no pathkeys */
+                                     NULL,  /* no required_outer */
+                                     NULL,  /* no fdw_outerpath */
+                                     NIL,   /* no fdw_restrictinfo */
+                                     NIL)); /* no fdw_private */
+#else
+             create_foreignscan_path(root, baserel,
+                                     baserel->reltarget,
+                                     rows,
+                                     startup_cost,
+                                     total_cost,
+                                     NIL,   /* no pathkeys */
+                                     NULL,  /* no required_outer */
+                                     NULL,  /* no fdw_outerpath */
+                                     NIL)); /* no fdw_private */
+#endif"""
+
+old_3 = """                 create_foreignscan_path(root, output_rel,
+                                          output_rel->reltarget,
+                                          rows,
+                                          startup_cost,
+                                          total_cost,
+                                          NIL,
+                                          NULL,
+                                          NULL,
+                                          NIL,
+                                          NIL));"""
+
+new_3 = """#if PG_VERSION_NUM >= 170000
+                 create_foreignscan_path(root, output_rel,
+                                          output_rel->reltarget,
+                                          rows,
+                                          startup_cost,
+                                          total_cost,
+                                          NIL,
+                                          NULL,
+                                          NULL,
+                                          NIL,
+                                          NIL));
+#else
+                 create_foreignscan_path(root, output_rel,
+                                          output_rel->reltarget,
+                                          rows,
+                                          startup_cost,
+                                          total_cost,
+                                          NIL,
+                                          NULL,
+                                          NULL,
+                                          NIL));
+#endif"""
+
+content = content.replace(old_1, new_1)
+content = content.replace(old_2, new_2)
+content = content.replace(old_3, new_3)
+
+with open(filepath, "w") as f:
+    f.write(content)
+print("Patch applied successfully.")
+EOF
+
+# Run patch, download libduckdb, compile and install duckdb_fdw
+RUN cd /tmp/duckdb_fdw \
+    && python3 patch_fdw.py \
+    && ARCH=$(uname -m) \
+    && if [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then DUCKDB_ARCH="arm64"; else DUCKDB_ARCH="amd64"; fi \
+    && wget https://github.com/duckdb/duckdb/releases/download/v1.5.1/libduckdb-linux-${DUCKDB_ARCH}.zip -O duckdb-temp.zip \
+    && unzip duckdb-temp.zip \
+    && make \
+    && make install \
+    && cp libduckdb.so /usr/lib/ \
+    && rm -rf /tmp/duckdb_fdw
