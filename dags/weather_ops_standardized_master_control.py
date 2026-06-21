@@ -122,6 +122,7 @@ def standardized_master_control():
             api_version="auto",
             auto_remove="success",
             mount_tmp_dir=False,
+            user="50000:0",
             network_mode="wx-alpha-pipeline_default",
             mounts=[
                 Mount(

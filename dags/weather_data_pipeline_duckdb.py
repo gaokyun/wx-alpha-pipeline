@@ -278,6 +278,7 @@ def unified_forecast_transform_duckdb():
         api_version="auto",
         auto_remove="success",
         mount_tmp_dir=False,
+        user="50000:0",
         network_mode="wx-alpha-pipeline_default",
         mounts=[
             Mount(
@@ -308,6 +309,7 @@ def unified_forecast_transform_duckdb():
         api_version="auto",
         auto_remove="success",
         mount_tmp_dir=False,
+        user="50000:0",
         network_mode="wx-alpha-pipeline_default",
         mounts=[
             Mount(
@@ -382,6 +384,7 @@ def refresh_unified_forecasts_v2():
             api_version="auto",
             auto_remove="success",
             mount_tmp_dir=False,
+            user="50000:0",
             network_mode="wx-alpha-pipeline_default",
             mounts=[
                 Mount(
